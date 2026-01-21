@@ -47,26 +47,14 @@
 
             <section class="flowchart-section" id="flowchartSection" style="display: none;">
                 <div class="section-header">
-                    <h2>Блок-схема</h2>
-                    <div class="controls">
-                        <button class="btn btn-secondary" id="zoomInBtn" title="Увеличить">+</button>
-                        <button class="btn btn-secondary" id="zoomOutBtn" title="Уменьшить">−</button>
-                        <button class="btn btn-secondary" id="resetZoomBtn" title="Сбросить масштаб">⟲</button>
-                        <button class="btn btn-primary" id="exportBtn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="7 10 12 15 17 10"></polyline>
-                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                            </svg>
-                            Экспортировать в PNG
-                        </button>
-                    </div>
+                    <h2>Блок-схемы</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 5px;">
+                        🖱️ Колёсико мыши — масштаб | ЛКМ + перетаскивание — перемещение
+                    </p>
                 </div>
                 
-                <div class="flowchart-container">
-                    <div class="flowchart-wrapper" id="flowchartWrapper">
-                        <!-- Блок-схемы будут отрисованы здесь -->
-                    </div>
+                <div class="flowchart-wrapper" id="flowchartWrapper">
+                    <!-- Панели блок-схем -->
                 </div>
             </section>
 

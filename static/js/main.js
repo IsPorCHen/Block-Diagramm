@@ -1,10 +1,9 @@
 /**
- * Основной JavaScript модуль приложения
- * Управляет загрузкой файлов и генерацией блок-схем
+ * Main JavaScript - управление загрузкой и интерактивностью блок-схем
  */
 
 let currentFile = null;
-let currentScale = 1;
+const flowchartInstances = new Map();
 
 // DOM элементы
 const uploadArea = document.getElementById('uploadArea');
@@ -19,14 +18,7 @@ const errorMessage = document.getElementById('errorMessage');
 const flowchartSection = document.getElementById('flowchartSection');
 const codeSection = document.getElementById('codeSection');
 const sourceCode = document.getElementById('sourceCode');
-const exportBtn = document.getElementById('exportBtn');
-const zoomInBtn = document.getElementById('zoomInBtn');
-const zoomOutBtn = document.getElementById('zoomOutBtn');
-const resetZoomBtn = document.getElementById('resetZoomBtn');
 
-/**
- * Инициализация обработчиков событий
- */
 function initEventListeners() {
     selectFileBtn.addEventListener('click', () => fileInput.click());
     
@@ -42,70 +34,45 @@ function initEventListeners() {
         clearFile();
     });
     
-    // Drag and Drop
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
-
-    // Кнопки управления
     generateBtn.addEventListener('click', generateFlowchart);
-    exportBtn.addEventListener('click', exportToPNG);
-    
-    // Масштабирование
-    zoomInBtn.addEventListener('click', () => zoom(1.2));
-    zoomOutBtn.addEventListener('click', () => zoom(0.8));
-    resetZoomBtn.addEventListener('click', resetZoom);
 }
 
-/**
- * Обработка выбора файла
- */
 function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) setFile(file);
 }
 
-/**
- * Обработка перетаскивания (drag over)
- */
 function handleDragOver(e) {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.add('dragover');
 }
 
-/**
- * Обработка выхода из зоны перетаскивания
- */
 function handleDragLeave(e) {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.remove('dragover');
 }
 
-/**
- * Обработка сброса файла (drop)
- */
 function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.remove('dragover');
-    
     const file = e.dataTransfer.files[0];
     if (file) setFile(file);
 }
 
-/**
- * Установка выбранного файла
- */
 function setFile(file) {
     if (!file.name.endsWith('.py')) {
-        showError('Пожалуйста, выберите файл с расширением .py');
+        showError('Пожалуйста, выберите файл .py');
         return;
     }
     
     if (file.size > 1024 * 1024) {
-        showError('Файл слишком большой. Максимальный размер: 1 МБ');
+        showError('Файл слишком большой (макс. 1 МБ)');
         return;
     }
     
@@ -117,9 +84,6 @@ function setFile(file) {
     hideError();
 }
 
-/**
- * Очистка выбранного файла
- */
 function clearFile() {
     currentFile = null;
     fileInput.value = '';
@@ -128,11 +92,9 @@ function clearFile() {
     generateBtn.disabled = true;
     flowchartSection.style.display = 'none';
     codeSection.style.display = 'none';
+    flowchartInstances.clear();
 }
 
-/**
- * Генерация блок-схемы
- */
 async function generateFlowchart() {
     if (!currentFile) return;
 
@@ -145,7 +107,6 @@ async function generateFlowchart() {
     formData.append('file', currentFile);
     
     try {
-        console.log('📤 Отправка файла на сервер...');
         const response = await fetch('/upload', {
             method: 'POST',
             body: formData
@@ -154,40 +115,48 @@ async function generateFlowchart() {
         const data = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.error || 'Ошибка при генерации блок-схемы');
+            throw new Error(data.error || 'Ошибка генерации');
         }
-        
-        console.log('📥 Данные получены:', data);
 
         const wrapper = document.getElementById('flowchartWrapper');
         wrapper.innerHTML = '';
+        flowchartInstances.clear();
 
-        // Отрисовка основной блок-схемы
-        if (data.main_flowchart && data.main_flowchart.nodes && data.main_flowchart.nodes.length > 0) {
-            renderFlowchart('main', 'Основной алгоритм', data.main_flowchart);
+        // Основная блок-схема
+        if (data.main_flowchart?.nodes?.length > 0) {
+            createFlowchartPanel('main', 'Основной алгоритм', data.main_flowchart);
         }
 
-        // Отрисовка блок-схем функций
-        if (data.functions && data.functions.length > 0) {
-            data.functions.forEach(func => {
-                if (func.flowchart && func.flowchart.nodes && func.flowchart.nodes.length > 0) {
-                    renderFlowchart(`func-${func.name}`, `Функция: ${func.name}`, func.flowchart);
+        // Классы
+        if (data.classes?.length > 0) {
+            data.classes.forEach(cls => {
+                if (cls.flowchart?.nodes?.length > 0) {
+                    createFlowchartPanel(`class-${cls.name}`, `Класс: ${cls.name}`, cls.flowchart);
                 }
             });
         }
 
-        // Показываем исходный код
+        // Функции и методы
+        if (data.functions?.length > 0) {
+            data.functions.forEach(func => {
+                if (func.flowchart?.nodes?.length > 0) {
+                    const title = func.type === 'method' 
+                        ? `Метод: ${func.name}` 
+                        : `Функция: ${func.name}`;
+                    createFlowchartPanel(`func-${func.name}`, title, func.flowchart);
+                }
+            });
+        }
+
+        // Код
         sourceCode.textContent = data.code;
         codeSection.style.display = 'block';
         
         flowchartSection.style.display = 'block';
-        resetZoom();
         flowchartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         
-        console.log('✅ Генерация завершена!');
-        
     } catch (error) {
-        console.error('❌ Ошибка генерации:', error);
+        console.error('Ошибка:', error);
         showError(error.message);
     } finally {
         generateBtn.disabled = false;
@@ -196,163 +165,226 @@ async function generateFlowchart() {
     }
 }
 
-/**
- * Отрисовка блок-схемы
- */
-function renderFlowchart(id, title, flowchartData) {
+function createFlowchartPanel(id, title, flowchartData) {
     const wrapper = document.getElementById('flowchartWrapper');
-
-    const section = document.createElement('div');
-    section.className = 'flowchart-section-item';
-    section.innerHTML = `
-        <h3 class="section-title">${title}</h3>
-        <div id="flowchart-${id}" class="flowchart-container-inner"></div>
+    
+    const panel = document.createElement('div');
+    panel.className = 'flowchart-panel';
+    panel.innerHTML = `
+        <div class="panel-header">
+            <h3 class="panel-title">${title}</h3>
+            <div class="panel-controls">
+                <button class="btn-icon" title="Увеличить" data-action="zoom-in">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                    </svg>
+                </button>
+                <button class="btn-icon" title="Уменьшить" data-action="zoom-out">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        <line x1="8" y1="11" x2="14" y2="11"/>
+                    </svg>
+                </button>
+                <button class="btn-icon" title="Сбросить" data-action="reset">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                    </svg>
+                </button>
+                <button class="btn-icon btn-download" title="Скачать PNG" data-action="download">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div class="panel-viewport" id="viewport-${id}">
+            <div class="panel-content" id="content-${id}">
+                <div class="flowchart-container" id="flowchart-${id}"></div>
+            </div>
+        </div>
+        <div class="panel-zoom-info" id="zoom-info-${id}">100%</div>
     `;
     
-    wrapper.appendChild(section);
+    wrapper.appendChild(panel);
     
-    const renderer = new FlowchartRenderer(`flowchart-${id}`);
-    renderer.render(flowchartData);
+    // Рендерим блок-схему
+    const container = document.getElementById(`flowchart-${id}`);
+    const renderer = new FlowchartRenderer(container);
+    const size = renderer.render(flowchartData);
     
-    const nodeCount = flowchartData.nodes ? flowchartData.nodes.length : 0;
-    const edgeCount = flowchartData.edges ? flowchartData.edges.length : 0;
-    console.log(`✅ Отрисована блок-схема: ${title} (${nodeCount} узлов, ${edgeCount} связей)`);
+    // Сохраняем состояние
+    const state = {
+        id,
+        title,
+        scale: 1,
+        panX: 0,
+        panY: 0,
+        isPanning: false,
+        startX: 0,
+        startY: 0,
+        renderer,
+        size
+    };
+    flowchartInstances.set(id, state);
+    
+    // Привязываем события
+    setupPanelInteraction(panel, state);
 }
 
-/**
- * Масштабирование
- */
-function zoom(factor) {
-    currentScale *= factor;
-    currentScale = Math.max(0.3, Math.min(currentScale, 3));
-    applyZoom();
+function setupPanelInteraction(panel, state) {
+    const viewport = panel.querySelector('.panel-viewport');
+    const content = panel.querySelector('.panel-content');
+    const zoomInfo = panel.querySelector('.panel-zoom-info');
+    
+    // Кнопки управления
+    panel.querySelectorAll('.btn-icon').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const action = btn.dataset.action;
+            switch (action) {
+                case 'zoom-in':
+                    zoom(state, 1.2, content, zoomInfo);
+                    break;
+                case 'zoom-out':
+                    zoom(state, 0.8, content, zoomInfo);
+                    break;
+                case 'reset':
+                    resetView(state, content, zoomInfo);
+                    break;
+                case 'download':
+                    downloadFlowchart(state);
+                    break;
+            }
+        });
+    });
+    
+    // Масштабирование колёсиком
+    viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        zoom(state, delta, content, zoomInfo);
+    }, { passive: false });
+    
+    // Перетаскивание ЛКМ
+    viewport.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+            state.isPanning = true;
+            state.startX = e.clientX - state.panX;
+            state.startY = e.clientY - state.panY;
+            viewport.style.cursor = 'grabbing';
+        }
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (state.isPanning) {
+            state.panX = e.clientX - state.startX;
+            state.panY = e.clientY - state.startY;
+            updateTransform(state, content);
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (state.isPanning) {
+            state.isPanning = false;
+            viewport.style.cursor = 'grab';
+        }
+    });
+    
+    viewport.style.cursor = 'grab';
 }
 
-/**
- * Сброс масштаба
- */
-function resetZoom() {
-    currentScale = 1;
-    applyZoom();
+function zoom(state, factor, content, zoomInfo) {
+    state.scale *= factor;
+    state.scale = Math.max(0.2, Math.min(state.scale, 5));
+    updateTransform(state, content);
+    zoomInfo.textContent = Math.round(state.scale * 100) + '%';
 }
 
-/**
- * Применение масштаба
- */
-function applyZoom() {
-    const wrapper = document.getElementById('flowchartWrapper');
-    wrapper.style.transform = `scale(${currentScale})`;
-    wrapper.style.transformOrigin = 'top center';
+function resetView(state, content, zoomInfo) {
+    state.scale = 1;
+    state.panX = 0;
+    state.panY = 0;
+    updateTransform(state, content);
+    zoomInfo.textContent = '100%';
 }
 
-/**
- * Экспорт в PNG
- */
-async function exportToPNG() {
+function updateTransform(state, content) {
+    content.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+}
+
+async function downloadFlowchart(state) {
     try {
-        exportBtn.disabled = true;
-        exportBtn.textContent = 'Экспортирование...';
-
-        const svgElement = document.querySelector('#flowchartWrapper svg');
+        const container = document.getElementById(`flowchart-${state.id}`);
+        const svgElement = container.querySelector('svg');
         if (!svgElement) {
-            throw new Error('Блок-схема не найдена');
+            showError('Блок-схема не найдена');
+            return;
         }
         
-        // Получаем размеры SVG
-        const viewBox = svgElement.getAttribute('viewBox');
-        const [, , vbWidth, vbHeight] = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 800, 600];
-        
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        const scale = 2; // Увеличиваем для лучшего качества
-        const padding = 40;
-        
-        canvas.width = (vbWidth + padding * 2) * scale;
-        canvas.height = (vbHeight + padding * 2) * scale;
-        
-        ctx.scale(scale, scale);
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Клонируем SVG и настраиваем
+        // Клонируем SVG
         const svgClone = svgElement.cloneNode(true);
-        svgClone.setAttribute('width', vbWidth);
-        svgClone.setAttribute('height', vbHeight);
+        const viewBox = svgElement.getAttribute('viewBox');
+        const [, , width, height] = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 800, 600];
+        
+        svgClone.setAttribute('width', width);
+        svgClone.setAttribute('height', height);
+        
+        // Добавляем белый фон
+        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bg.setAttribute('width', '100%');
+        bg.setAttribute('height', '100%');
+        bg.setAttribute('fill', 'white');
+        svgClone.insertBefore(bg, svgClone.firstChild);
         
         const svgString = new XMLSerializer().serializeToString(svgClone);
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
-
+        
         const img = new Image();
-        img.onload = function() {
-            ctx.drawImage(img, padding, padding);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = 2;
+            canvas.width = width * scale;
+            canvas.height = height * scale;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0);
+            
             URL.revokeObjectURL(url);
             
-            canvas.toBlob(function(blob) {
+            canvas.toBlob((blob) => {
                 const link = document.createElement('a');
-                link.download = `flowchart_${Date.now()}.png`;
+                link.download = `flowchart_${state.title.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_')}.png`;
                 link.href = URL.createObjectURL(blob);
                 link.click();
                 URL.revokeObjectURL(link.href);
-                
-                resetExportBtn();
             });
-        };
-        
-        img.onerror = function() {
-            URL.revokeObjectURL(url);
-            throw new Error('Ошибка загрузки изображения');
         };
         
         img.src = url;
         
     } catch (error) {
-        showError('Ошибка при экспорте: ' + error.message);
-        resetExportBtn();
+        showError('Ошибка скачивания: ' + error.message);
     }
 }
 
-/**
- * Сброс кнопки экспорта
- */
-function resetExportBtn() {
-    exportBtn.disabled = false;
-    exportBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        Экспортировать в PNG
-    `;
-}
-
-/**
- * Показать ошибку
- */
 function showError(message) {
     errorMessage.textContent = message;
     errorAlert.style.display = 'flex';
-    errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-/**
- * Скрыть ошибку
- */
 function hideError() {
     errorAlert.style.display = 'none';
 }
 
-/**
- * Закрыть alert
- */
 function closeAlert() {
     hideError();
 }
 
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('✅ Приложение загружено');
-    initEventListeners();
-});
+document.addEventListener('DOMContentLoaded', initEventListeners);

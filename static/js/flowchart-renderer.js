@@ -1,32 +1,34 @@
 /**
- * FlowchartRenderer - Рендерер блок-схем с поддержкой ветвлений и циклов
- * Использует алгоритм размещения узлов на основе уровней (layers)
+ * FlowchartRenderer - Рендерер блок-схем
+ * Структура как на референсе: ветвления влево/вправо
  */
 class FlowchartRenderer {
-    constructor(containerId) {
-        this.container = document.getElementById(containerId);
-        this.blockWidth = 160;
-        this.blockHeight = 50;
-        this.conditionSize = 70;
-        this.verticalGap = 60;
-        this.horizontalGap = 80;
-        this.padding = 50;
+    constructor(container) {
+        this.container = container;
+        this.svg = null;
+        this.nodePositions = new Map();
         
-        // Цвета по ГОСТ
+        // Размеры
+        this.nodeWidth = 200;
+        this.nodeHeight = 40;
+        this.conditionSize = 50;
+        this.verticalGap = 50;
+        this.horizontalGap = 120;
+        this.padding = 60;
+        
+        // Цвета (сохраняем синий дизайн)
         this.colors = {
             fill: '#dbeafe',
             stroke: '#2563eb',
             text: '#1e293b',
-            arrow: '#2563eb',
-            labelBg: '#ffffff',
-            yesColor: '#10b981',
-            noColor: '#ef4444'
+            startEnd: '#2563eb',
+            startEndText: '#ffffff'
         };
     }
     
     render(flowchartData) {
         if (!flowchartData || !flowchartData.nodes || flowchartData.nodes.length === 0) {
-            this.container.innerHTML = '<p style="text-align: center; color: #666;">Нет данных для отображения</p>';
+            this.container.innerHTML = '<p class="no-data">Нет данных</p>';
             return;
         }
         
@@ -34,515 +36,459 @@ class FlowchartRenderer {
         
         const { nodes, edges } = flowchartData;
         
-        // Вычисляем позиции узлов
-        const layout = this.calculateLayout(nodes, edges);
-        
-        // Создаём SVG
-        const svg = this.createSVG(layout);
-        
-        // Добавляем маркер стрелки
-        this.addArrowMarker(svg);
-        
-        // Рисуем связи (сначала, чтобы были под узлами)
-        edges.forEach(edge => {
-            this.drawEdge(svg, edge, layout);
-        });
-        
-        // Рисуем узлы
-        nodes.forEach(node => {
-            this.drawNode(svg, node, layout);
-        });
-        
-        this.container.appendChild(svg);
-    }
-    
-    calculateLayout(nodes, edges) {
-        // Строим граф смежности
-        const adjacency = new Map();
-        const reverseAdj = new Map();
-        
-        nodes.forEach(node => {
-            adjacency.set(node.id, []);
-            reverseAdj.set(node.id, []);
-        });
-        
-        edges.forEach(edge => {
-            if (adjacency.has(edge.from)) {
-                adjacency.get(edge.from).push(edge.to);
-            }
-            if (reverseAdj.has(edge.to)) {
-                reverseAdj.get(edge.to).push(edge.from);
-            }
-        });
-        
-        // Топологическая сортировка с учётом уровней
-        const levels = this.assignLevels(nodes, adjacency, reverseAdj);
-        
-        // Группируем узлы по уровням
-        const levelGroups = new Map();
-        nodes.forEach(node => {
-            const level = levels.get(node.id) || 0;
-            if (!levelGroups.has(level)) {
-                levelGroups.set(level, []);
-            }
-            levelGroups.get(level).push(node);
-        });
-        
-        // Сортируем уровни
-        const sortedLevels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
-        
-        // Вычисляем максимальную ширину уровня
-        let maxLevelWidth = 0;
-        sortedLevels.forEach(level => {
-            const nodesAtLevel = levelGroups.get(level);
-            maxLevelWidth = Math.max(maxLevelWidth, nodesAtLevel.length);
-        });
-        
-        // Вычисляем позиции
-        const positions = new Map();
-        const totalWidth = maxLevelWidth * (this.blockWidth + this.horizontalGap);
-        
-        sortedLevels.forEach((level, levelIndex) => {
-            const nodesAtLevel = levelGroups.get(level);
-            const levelWidth = nodesAtLevel.length * (this.blockWidth + this.horizontalGap) - this.horizontalGap;
-            const startX = this.padding + (totalWidth - levelWidth) / 2;
-            
-            nodesAtLevel.forEach((node, nodeIndex) => {
-                const x = startX + nodeIndex * (this.blockWidth + this.horizontalGap) + this.blockWidth / 2;
-                const y = this.padding + levelIndex * (this.blockHeight + this.verticalGap) + this.blockHeight / 2;
-                positions.set(node.id, { x, y, level: levelIndex });
-            });
-        });
+        // Рассчитываем позиции с учётом ветвлений
+        this.calculatePositions(nodes, edges);
         
         // Определяем размеры SVG
-        const width = totalWidth + this.padding * 2;
-        const height = sortedLevels.length * (this.blockHeight + this.verticalGap) + this.padding * 2;
+        const bounds = this.getBounds();
         
-        return { positions, width, height, nodes, edges };
+        // Создаём SVG
+        this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        this.svg.setAttribute('width', bounds.width);
+        this.svg.setAttribute('height', bounds.height);
+        this.svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
+        this.svg.style.display = 'block';
+        
+        // Маркеры стрелок
+        this.addMarkers();
+        
+        // Рисуем связи
+        edges.forEach(edge => this.drawEdge(edge, nodes));
+        
+        // Рисуем узлы
+        nodes.forEach(node => this.drawNode(node));
+        
+        this.container.appendChild(this.svg);
+        
+        return { width: bounds.width, height: bounds.height };
     }
     
-    assignLevels(nodes, adjacency, reverseAdj) {
-        const levels = new Map();
+    calculatePositions(nodes, edges) {
+        this.nodePositions.clear();
+        
+        // Строим граф
+        const children = new Map();
+        const parents = new Map();
+        
+        nodes.forEach(n => {
+            children.set(n.id, []);
+            parents.set(n.id, []);
+        });
+        
+        edges.forEach(e => {
+            children.get(e.from)?.push({ to: e.to, branch: e.branch, label: e.label });
+            parents.get(e.to)?.push(e.from);
+        });
+        
+        // Находим стартовый узел
+        let startNode = nodes.find(n => n.type === 'start' || n.type === 'class_start');
+        if (!startNode) startNode = nodes.find(n => parents.get(n.id).length === 0);
+        if (!startNode && nodes.length > 0) startNode = nodes[0];
+        
+        // Позиционируем рекурсивно
         const visited = new Set();
+        const centerX = 400;
         
-        // Находим начальный узел (без входящих рёбер или типа 'start')
-        let startNode = nodes.find(n => n.type === 'start');
-        if (!startNode) {
-            startNode = nodes.find(n => reverseAdj.get(n.id).length === 0);
-        }
-        if (!startNode && nodes.length > 0) {
-            startNode = nodes[0];
-        }
+        this.positionNode(startNode.id, centerX, this.padding, nodes, children, visited, 0);
+    }
+    
+    positionNode(nodeId, x, y, nodes, children, visited, depth) {
+        if (visited.has(nodeId)) return y;
+        visited.add(nodeId);
         
-        // BFS для назначения уровней
-        const queue = [];
-        if (startNode) {
-            queue.push({ id: startNode.id, level: 0 });
-            levels.set(startNode.id, 0);
-        }
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) return y;
         
-        while (queue.length > 0) {
-            const { id, level } = queue.shift();
+        this.nodePositions.set(nodeId, { x, y });
+        
+        const nodeChildren = children.get(nodeId) || [];
+        
+        // Узел условия - ветвление влево/вправо
+        if (node.type === 'condition') {
+            const yesChild = nodeChildren.find(c => c.branch === 'yes');
+            const noChild = nodeChildren.find(c => c.branch === 'no');
+            const loopChild = nodeChildren.find(c => c.branch === 'loop');
+            const otherChildren = nodeChildren.filter(c => !c.branch || c.branch === '');
             
-            if (visited.has(id)) {
-                // Обновляем уровень если нашли более длинный путь
-                if (levels.get(id) < level) {
-                    levels.set(id, level);
-                }
-                continue;
+            let maxY = y;
+            
+            // "да" - вниз или влево
+            if (yesChild && !visited.has(yesChild.to)) {
+                const yesY = this.positionNode(yesChild.to, x, y + this.verticalGap + this.conditionSize, 
+                                               nodes, children, visited, depth + 1);
+                maxY = Math.max(maxY, yesY);
             }
             
-            visited.add(id);
-            levels.set(id, level);
+            // "нет" - вправо
+            if (noChild && !visited.has(noChild.to)) {
+                const noX = x + this.horizontalGap + this.nodeWidth / 2;
+                const noY = this.positionNode(noChild.to, noX, y, nodes, children, visited, depth + 1);
+                maxY = Math.max(maxY, noY);
+            }
             
-            const neighbors = adjacency.get(id) || [];
-            neighbors.forEach(neighborId => {
-                const currentLevel = levels.get(neighborId);
-                const newLevel = level + 1;
-                
-                if (currentLevel === undefined || currentLevel < newLevel) {
-                    levels.set(neighborId, newLevel);
-                    queue.push({ id: neighborId, level: newLevel });
+            // Обычные дети (выход из условия без else)
+            otherChildren.forEach(child => {
+                if (!visited.has(child.to)) {
+                    const childY = this.positionNode(child.to, x, maxY + this.verticalGap + this.nodeHeight,
+                                                     nodes, children, visited, depth + 1);
+                    maxY = Math.max(maxY, childY);
                 }
             });
+            
+            return maxY;
         }
         
-        // Обрабатываем непосещённые узлы
-        nodes.forEach(node => {
-            if (!levels.has(node.id)) {
-                levels.set(node.id, 0);
+        // Обычный узел - дети идут вниз
+        let currentY = y;
+        nodeChildren.forEach(child => {
+            if (!visited.has(child.to)) {
+                currentY = this.positionNode(child.to, x, currentY + this.verticalGap + this.nodeHeight,
+                                             nodes, children, visited, depth + 1);
             }
         });
         
-        return levels;
+        return Math.max(y, currentY);
     }
     
-    createSVG(layout) {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', layout.height);
-        svg.setAttribute('viewBox', `0 0 ${layout.width} ${layout.height}`);
-        svg.style.display = 'block';
-        svg.style.margin = '0 auto';
-        svg.style.minWidth = `${layout.width}px`;
-        return svg;
+    getBounds() {
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        
+        this.nodePositions.forEach(pos => {
+            minX = Math.min(minX, pos.x - this.nodeWidth / 2);
+            maxX = Math.max(maxX, pos.x + this.nodeWidth / 2);
+            minY = Math.min(minY, pos.y - this.nodeHeight / 2);
+            maxY = Math.max(maxY, pos.y + this.nodeHeight / 2);
+        });
+        
+        // Сдвигаем все позиции чтобы начинались от padding
+        const offsetX = this.padding - minX;
+        const offsetY = this.padding - minY;
+        
+        this.nodePositions.forEach((pos, id) => {
+            pos.x += offsetX;
+            pos.y += offsetY;
+        });
+        
+        return {
+            width: (maxX - minX) + this.padding * 2,
+            height: (maxY - minY) + this.padding * 2
+        };
     }
     
-    addArrowMarker(svg) {
+    addMarkers() {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         
-        // Обычная стрелка
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-        marker.setAttribute('id', 'arrowhead');
+        marker.setAttribute('id', 'arrow');
         marker.setAttribute('markerWidth', '10');
         marker.setAttribute('markerHeight', '10');
         marker.setAttribute('refX', '9');
         marker.setAttribute('refY', '3');
         marker.setAttribute('orient', 'auto');
-        marker.setAttribute('markerUnits', 'strokeWidth');
         
         const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         polygon.setAttribute('points', '0 0, 10 3, 0 6');
-        polygon.setAttribute('fill', this.colors.arrow);
+        polygon.setAttribute('fill', this.colors.stroke);
         
         marker.appendChild(polygon);
         defs.appendChild(marker);
-        
-        // Зелёная стрелка (Да)
-        const markerYes = marker.cloneNode(true);
-        markerYes.setAttribute('id', 'arrowhead-yes');
-        markerYes.querySelector('polygon').setAttribute('fill', this.colors.yesColor);
-        defs.appendChild(markerYes);
-        
-        // Красная стрелка (Нет)
-        const markerNo = marker.cloneNode(true);
-        markerNo.setAttribute('id', 'arrowhead-no');
-        markerNo.querySelector('polygon').setAttribute('fill', this.colors.noColor);
-        defs.appendChild(markerNo);
-        
-        svg.appendChild(defs);
+        this.svg.appendChild(defs);
     }
     
-    drawNode(svg, node, layout) {
-        const pos = layout.positions.get(node.id);
+    drawNode(node) {
+        const pos = this.nodePositions.get(node.id);
         if (!pos) return;
         
-        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        group.setAttribute('class', `node node-${node.type}`);
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         
         switch (node.type) {
             case 'start':
-            case 'end':
-                this.drawTerminal(group, pos.x, pos.y, node.text);
+            case 'class_start':
+                this.drawTerminator(g, pos.x, pos.y, node.text, true);
                 break;
-            case 'operation':
-                this.drawProcess(group, pos.x, pos.y, node.text);
+            case 'end':
+                this.drawEndCircle(g, pos.x, pos.y);
+                break;
+            case 'process':
+                this.drawRectangle(g, pos.x, pos.y, node.text);
                 break;
             case 'input':
             case 'output':
-                this.drawIO(group, pos.x, pos.y, node.text);
+                this.drawParallelogram(g, pos.x, pos.y, node.text);
                 break;
             case 'condition':
-            case 'loop_condition':
-                this.drawDecision(group, pos.x, pos.y, node.text);
+                this.drawDiamond(g, pos.x, pos.y, node.text);
                 break;
-            case 'loop_init':
-                this.drawLoopInit(group, pos.x, pos.y, node.text);
+            case 'method':
+                this.drawTerminator(g, pos.x, pos.y, node.text, false);
+                break;
+            case 'try_start':
+            case 'except':
+            case 'finally':
+                this.drawRectangle(g, pos.x, pos.y, node.text, true);
                 break;
             default:
-                this.drawProcess(group, pos.x, pos.y, node.text);
+                this.drawRectangle(g, pos.x, pos.y, node.text);
         }
         
-        svg.appendChild(group);
+        this.svg.appendChild(g);
     }
     
-    drawTerminal(group, x, y, text) {
-        // Овал для начала/конца
-        const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-        ellipse.setAttribute('cx', x);
-        ellipse.setAttribute('cy', y);
-        ellipse.setAttribute('rx', this.blockWidth / 2);
-        ellipse.setAttribute('ry', this.blockHeight / 2);
-        ellipse.setAttribute('fill', this.colors.fill);
-        ellipse.setAttribute('stroke', this.colors.stroke);
-        ellipse.setAttribute('stroke-width', '2');
+    drawTerminator(g, x, y, text, withCircle = false) {
+        // Кружок сверху
+        if (withCircle) {
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', y - this.nodeHeight / 2 - 15);
+            circle.setAttribute('r', 8);
+            circle.setAttribute('fill', this.colors.stroke);
+            g.appendChild(circle);
+        }
         
-        const textEl = this.createText(x, y, text);
-        
-        group.appendChild(ellipse);
-        group.appendChild(textEl);
-    }
-    
-    drawProcess(group, x, y, text) {
-        // Прямоугольник для действия
+        // Овал
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', x - this.blockWidth / 2);
-        rect.setAttribute('y', y - this.blockHeight / 2);
-        rect.setAttribute('width', this.blockWidth);
-        rect.setAttribute('height', this.blockHeight);
+        rect.setAttribute('x', x - this.nodeWidth / 2);
+        rect.setAttribute('y', y - this.nodeHeight / 2);
+        rect.setAttribute('width', this.nodeWidth);
+        rect.setAttribute('height', this.nodeHeight);
+        rect.setAttribute('rx', this.nodeHeight / 2);
+        rect.setAttribute('ry', this.nodeHeight / 2);
         rect.setAttribute('fill', this.colors.fill);
         rect.setAttribute('stroke', this.colors.stroke);
         rect.setAttribute('stroke-width', '2');
-        rect.setAttribute('rx', '4');
+        g.appendChild(rect);
         
+        // Текст
         const textEl = this.createText(x, y, text);
-        
-        group.appendChild(rect);
-        group.appendChild(textEl);
+        g.appendChild(textEl);
     }
     
-    drawIO(group, x, y, text) {
-        // Параллелограмм для ввода/вывода
-        const offset = 15;
+    drawEndCircle(g, x, y) {
+        // Внешний ромб-выход
+        const size = 15;
+        const outer = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        outer.setAttribute('points', `${x},${y-size} ${x+size},${y} ${x},${y+size} ${x-size},${y}`);
+        outer.setAttribute('fill', 'white');
+        outer.setAttribute('stroke', this.colors.stroke);
+        outer.setAttribute('stroke-width', '2');
+        g.appendChild(outer);
+        
+        // Внутренний кружок
+        const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        inner.setAttribute('cx', x);
+        inner.setAttribute('cy', y);
+        inner.setAttribute('r', 6);
+        inner.setAttribute('fill', this.colors.stroke);
+        g.appendChild(inner);
+    }
+    
+    drawRectangle(g, x, y, text, dashed = false) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - this.nodeWidth / 2);
+        rect.setAttribute('y', y - this.nodeHeight / 2);
+        rect.setAttribute('width', this.nodeWidth);
+        rect.setAttribute('height', this.nodeHeight);
+        rect.setAttribute('fill', this.colors.fill);
+        rect.setAttribute('stroke', this.colors.stroke);
+        rect.setAttribute('stroke-width', '2');
+        if (dashed) {
+            rect.setAttribute('stroke-dasharray', '5,3');
+        }
+        g.appendChild(rect);
+        
+        const textEl = this.createText(x, y, text);
+        g.appendChild(textEl);
+    }
+    
+    drawParallelogram(g, x, y, text) {
+        const w = this.nodeWidth / 2;
+        const h = this.nodeHeight / 2;
+        const skew = 15;
+        
         const points = [
-            [x - this.blockWidth / 2 + offset, y - this.blockHeight / 2],
-            [x + this.blockWidth / 2 + offset, y - this.blockHeight / 2],
-            [x + this.blockWidth / 2 - offset, y + this.blockHeight / 2],
-            [x - this.blockWidth / 2 - offset, y + this.blockHeight / 2]
-        ];
+            `${x - w + skew},${y - h}`,
+            `${x + w + skew},${y - h}`,
+            `${x + w - skew},${y + h}`,
+            `${x - w - skew},${y + h}`
+        ].join(' ');
         
-        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-        polygon.setAttribute('points', points.map(p => p.join(',')).join(' '));
-        polygon.setAttribute('fill', this.colors.fill);
-        polygon.setAttribute('stroke', this.colors.stroke);
-        polygon.setAttribute('stroke-width', '2');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', points);
+        poly.setAttribute('fill', this.colors.fill);
+        poly.setAttribute('stroke', this.colors.stroke);
+        poly.setAttribute('stroke-width', '2');
+        g.appendChild(poly);
         
         const textEl = this.createText(x, y, text);
-        
-        group.appendChild(polygon);
-        group.appendChild(textEl);
+        g.appendChild(textEl);
     }
     
-    drawDecision(group, x, y, text) {
-        // Ромб для условия
+    drawDiamond(g, x, y, text) {
         const size = this.conditionSize;
-        const points = [
-            [x, y - size],
-            [x + size, y],
-            [x, y + size],
-            [x - size, y]
-        ];
-        
-        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-        polygon.setAttribute('points', points.map(p => p.join(',')).join(' '));
-        polygon.setAttribute('fill', this.colors.fill);
-        polygon.setAttribute('stroke', this.colors.stroke);
-        polygon.setAttribute('stroke-width', '2');
-        
-        const textEl = this.createText(x, y, text, size * 1.5);
-        
-        group.appendChild(polygon);
-        group.appendChild(textEl);
-    }
-    
-    drawLoopInit(group, x, y, text) {
-        // Шестиугольник для подготовки цикла
-        const w = this.blockWidth / 2;
-        const h = this.blockHeight / 2;
-        const cut = 15;
         
         const points = [
-            [x - w + cut, y - h],
-            [x + w - cut, y - h],
-            [x + w, y],
-            [x + w - cut, y + h],
-            [x - w + cut, y + h],
-            [x - w, y]
-        ];
+            `${x},${y - size}`,
+            `${x + size},${y}`,
+            `${x},${y + size}`,
+            `${x - size},${y}`
+        ].join(' ');
         
-        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-        polygon.setAttribute('points', points.map(p => p.join(',')).join(' '));
-        polygon.setAttribute('fill', this.colors.fill);
-        polygon.setAttribute('stroke', this.colors.stroke);
-        polygon.setAttribute('stroke-width', '2');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', points);
+        poly.setAttribute('fill', this.colors.fill);
+        poly.setAttribute('stroke', this.colors.stroke);
+        poly.setAttribute('stroke-width', '2');
+        g.appendChild(poly);
         
-        const textEl = this.createText(x, y, text);
-        
-        group.appendChild(polygon);
-        group.appendChild(textEl);
+        const textEl = this.createText(x, y, text, size * 1.8);
+        g.appendChild(textEl);
     }
     
-    drawEdge(svg, edge, layout) {
-        const fromPos = layout.positions.get(edge.from);
-        const toPos = layout.positions.get(edge.to);
-        
+    drawEdge(edge, nodes) {
+        const fromPos = this.nodePositions.get(edge.from);
+        const toPos = this.nodePositions.get(edge.to);
         if (!fromPos || !toPos) return;
         
-        const fromNode = layout.nodes.find(n => n.id === edge.from);
-        const toNode = layout.nodes.find(n => n.id === edge.to);
+        const fromNode = nodes.find(n => n.id === edge.from);
+        const toNode = nodes.find(n => n.id === edge.to);
         
-        // Определяем точки соединения
-        const points = this.calculateEdgePoints(fromPos, toPos, fromNode, toNode, edge.label);
+        const path = this.calculatePath(fromPos, toPos, fromNode, toNode, edge);
         
-        // Определяем цвет и маркер
-        let strokeColor = this.colors.arrow;
-        let markerId = 'arrowhead';
+        const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathEl.setAttribute('d', path);
+        pathEl.setAttribute('fill', 'none');
+        pathEl.setAttribute('stroke', this.colors.stroke);
+        pathEl.setAttribute('stroke-width', '2');
+        pathEl.setAttribute('marker-end', 'url(#arrow)');
         
-        if (edge.label === 'Да') {
-            strokeColor = this.colors.yesColor;
-            markerId = 'arrowhead-yes';
-        } else if (edge.label === 'Нет') {
-            strokeColor = this.colors.noColor;
-            markerId = 'arrowhead-no';
-        }
+        this.svg.appendChild(pathEl);
         
-        // Рисуем путь
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', this.pointsToPath(points));
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', strokeColor);
-        path.setAttribute('stroke-width', '2');
-        path.setAttribute('marker-end', `url(#${markerId})`);
-        
-        svg.appendChild(path);
-        
-        // Добавляем метку
+        // Метка
         if (edge.label) {
-            this.drawEdgeLabel(svg, points, edge.label, strokeColor);
+            this.drawEdgeLabel(fromPos, toPos, edge);
         }
     }
     
-    calculateEdgePoints(fromPos, toPos, fromNode, toNode, label) {
-        const points = [];
+    calculatePath(from, to, fromNode, toNode, edge) {
+        const fromH = fromNode?.type === 'condition' ? this.conditionSize : this.nodeHeight / 2;
+        const toH = toNode?.type === 'condition' ? this.conditionSize : this.nodeHeight / 2;
+        const toEndH = toNode?.type === 'end' ? 15 : toH;
         
-        // Определяем размеры узлов
-        const fromHeight = (fromNode && (fromNode.type === 'condition' || fromNode.type === 'loop_condition')) 
-            ? this.conditionSize : this.blockHeight / 2;
-        const toHeight = (toNode && (toNode.type === 'condition' || toNode.type === 'loop_condition')) 
-            ? this.conditionSize : this.blockHeight / 2;
-        const fromWidth = (fromNode && (fromNode.type === 'condition' || fromNode.type === 'loop_condition')) 
-            ? this.conditionSize : this.blockWidth / 2;
-        const toWidth = (toNode && (toNode.type === 'condition' || toNode.type === 'loop_condition')) 
-            ? this.conditionSize : this.blockWidth / 2;
+        let x1, y1, x2, y2;
         
-        // Определяем направление
-        const dx = toPos.x - fromPos.x;
-        const dy = toPos.y - fromPos.y;
-        
-        // Проверяем, идёт ли линия обратно вверх (цикл)
-        const isBackEdge = dy < 0;
-        
-        if (isBackEdge) {
-            // Обратная связь цикла - рисуем сбоку
-            const offset = this.horizontalGap / 2 + 20;
+        // Определяем точки выхода/входа
+        if (edge.branch === 'yes' && fromNode?.type === 'condition') {
+            // "да" - выход снизу
+            x1 = from.x;
+            y1 = from.y + fromH;
+            x2 = to.x;
+            y2 = to.y - toEndH;
             
-            points.push({ x: fromPos.x + fromWidth, y: fromPos.y });
-            points.push({ x: fromPos.x + fromWidth + offset, y: fromPos.y });
-            points.push({ x: fromPos.x + fromWidth + offset, y: toPos.y });
-            points.push({ x: toPos.x + toWidth, y: toPos.y });
-        } else if (Math.abs(dx) < 10) {
-            // Вертикальная связь
-            points.push({ x: fromPos.x, y: fromPos.y + fromHeight });
-            points.push({ x: toPos.x, y: toPos.y - toHeight });
-        } else if (fromNode && (fromNode.type === 'condition' || fromNode.type === 'loop_condition')) {
-            // Связь от условия - выходим сбоку
-            if (label === 'Да') {
-                // Да - выходим снизу
-                points.push({ x: fromPos.x, y: fromPos.y + fromHeight });
-                if (Math.abs(dx) > 10) {
-                    points.push({ x: fromPos.x, y: (fromPos.y + toPos.y) / 2 });
-                    points.push({ x: toPos.x, y: (fromPos.y + toPos.y) / 2 });
-                }
-                points.push({ x: toPos.x, y: toPos.y - toHeight });
-            } else if (label === 'Нет') {
-                // Нет - выходим вправо
-                points.push({ x: fromPos.x + fromWidth, y: fromPos.y });
-                points.push({ x: toPos.x + toWidth + 30, y: fromPos.y });
-                points.push({ x: toPos.x + toWidth + 30, y: toPos.y });
-                points.push({ x: toPos.x + toWidth, y: toPos.y });
+            if (Math.abs(x1 - x2) < 10) {
+                return `M ${x1} ${y1} L ${x2} ${y2}`;
             } else {
-                // Обычная связь
-                points.push({ x: fromPos.x, y: fromPos.y + fromHeight });
-                if (Math.abs(dx) > 10) {
-                    points.push({ x: fromPos.x, y: (fromPos.y + toPos.y) / 2 });
-                    points.push({ x: toPos.x, y: (fromPos.y + toPos.y) / 2 });
-                }
-                points.push({ x: toPos.x, y: toPos.y - toHeight });
+                const midY = y1 + 20;
+                return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
             }
+        } else if (edge.branch === 'no' && fromNode?.type === 'condition') {
+            // "нет" - выход вправо
+            x1 = from.x + this.conditionSize;
+            y1 = from.y;
+            x2 = to.x - this.nodeWidth / 2 - 10;
+            y2 = to.y;
+            
+            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${to.x - this.nodeWidth / 2} ${y2}`;
+        } else if (edge.branch === 'loop') {
+            // Обратная связь цикла - идёт справа вверх
+            x1 = from.x + this.nodeWidth / 2;
+            y1 = from.y;
+            x2 = to.x + this.conditionSize;
+            y2 = to.y;
+            
+            const offset = 30;
+            return `M ${x1} ${y1} L ${x1 + offset} ${y1} L ${x1 + offset} ${y2} L ${x2} ${y2}`;
+        } else if (edge.branch === 'exception') {
+            // Исключение - выход вправо
+            x1 = from.x + this.nodeWidth / 2;
+            y1 = from.y;
+            x2 = to.x - this.nodeWidth / 2;
+            y2 = to.y;
+            
+            const midX = x1 + 30;
+            return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
         } else {
-            // Обычная связь с изгибом
-            points.push({ x: fromPos.x, y: fromPos.y + fromHeight });
+            // Обычная связь - сверху вниз
+            x1 = from.x;
+            y1 = from.y + fromH;
+            x2 = to.x;
+            y2 = to.y - toEndH;
             
-            if (Math.abs(dx) > 10) {
-                const midY = (fromPos.y + fromHeight + toPos.y - toHeight) / 2;
-                points.push({ x: fromPos.x, y: midY });
-                points.push({ x: toPos.x, y: midY });
+            // Если начало в терминаторе с кружком, учитываем
+            if (fromNode?.type === 'start' || fromNode?.type === 'class_start') {
+                y1 = from.y + this.nodeHeight / 2;
             }
             
-            points.push({ x: toPos.x, y: toPos.y - toHeight });
+            if (Math.abs(x1 - x2) < 10) {
+                return `M ${x1} ${y1} L ${x2} ${y2}`;
+            } else {
+                const midY = (y1 + y2) / 2;
+                return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+            }
         }
-        
-        return points;
     }
     
-    pointsToPath(points) {
-        if (points.length < 2) return '';
+    drawEdgeLabel(from, to, edge) {
+        let x, y;
         
-        let d = `M ${points[0].x} ${points[0].y}`;
-        
-        for (let i = 1; i < points.length; i++) {
-            d += ` L ${points[i].x} ${points[i].y}`;
-        }
-        
-        return d;
-    }
-    
-    drawEdgeLabel(svg, points, label, color) {
-        // Находим середину пути для размещения метки
-        let labelX, labelY;
-        
-        if (points.length === 2) {
-            labelX = (points[0].x + points[1].x) / 2;
-            labelY = (points[0].y + points[1].y) / 2;
+        if (edge.branch === 'yes') {
+            x = from.x - 15;
+            y = from.y + this.conditionSize + 15;
+        } else if (edge.branch === 'no') {
+            x = from.x + this.conditionSize + 15;
+            y = from.y - 5;
+        } else if (edge.branch === 'exception') {
+            x = from.x + this.nodeWidth / 2 + 10;
+            y = from.y - 5;
         } else {
-            // Размещаем у начала второго сегмента
-            labelX = points[1].x + 5;
-            labelY = points[0].y + 15;
+            x = (from.x + to.x) / 2 + 10;
+            y = (from.y + to.y) / 2;
         }
-        
-        // Фон для метки
-        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        bg.setAttribute('x', labelX - 12);
-        bg.setAttribute('y', labelY - 10);
-        bg.setAttribute('width', 24);
-        bg.setAttribute('height', 16);
-        bg.setAttribute('fill', this.colors.labelBg);
-        bg.setAttribute('rx', '3');
         
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', labelX);
-        text.setAttribute('y', labelY + 2);
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('x', x);
+        text.setAttribute('y', y);
         text.setAttribute('font-family', 'Arial, sans-serif');
-        text.setAttribute('font-size', '11');
-        text.setAttribute('font-weight', 'bold');
-        text.setAttribute('fill', color);
-        text.textContent = label;
+        text.setAttribute('font-size', '12');
+        text.setAttribute('fill', this.colors.text);
+        text.textContent = edge.label;
         
-        svg.appendChild(bg);
-        svg.appendChild(text);
+        this.svg.appendChild(text);
     }
     
-    createText(x, y, text, maxWidth = 150) {
+    createText(x, y, text, maxWidth = 180) {
         const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         textEl.setAttribute('x', x);
         textEl.setAttribute('y', y);
         textEl.setAttribute('text-anchor', 'middle');
         textEl.setAttribute('dominant-baseline', 'middle');
         textEl.setAttribute('font-family', 'Arial, sans-serif');
-        textEl.setAttribute('font-size', '11');
+        textEl.setAttribute('font-size', '12');
         textEl.setAttribute('fill', this.colors.text);
         
-        // Разбиваем текст на строки
+        // Разбиваем на строки
+        if (!text) {
+            return textEl;
+        }
+        
         const words = text.split(' ');
         const lines = [];
         let currentLine = '';
         
         words.forEach(word => {
             const testLine = currentLine ? currentLine + ' ' + word : word;
-            if (testLine.length * 6.5 > maxWidth) {
-                if (currentLine) lines.push(currentLine);
+            if (testLine.length * 7 > maxWidth && currentLine) {
+                lines.push(currentLine);
                 currentLine = word;
             } else {
                 currentLine = testLine;
@@ -550,25 +496,20 @@ class FlowchartRenderer {
         });
         if (currentLine) lines.push(currentLine);
         
-        // Ограничиваем до 3 строк
-        if (lines.length > 3) {
-            lines.length = 3;
-            lines[2] = lines[2].substring(0, lines[2].length - 3) + '...';
-        }
-        
-        if (lines.length === 1) {
-            textEl.textContent = text.length > 25 ? text.substring(0, 22) + '...' : text;
-        } else {
-            const lineHeight = 14;
-            const startY = y - ((lines.length - 1) * lineHeight) / 2;
-            
-            lines.forEach((line, index) => {
-                const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-                tspan.setAttribute('x', x);
-                tspan.setAttribute('y', startY + index * lineHeight);
-                tspan.textContent = line.length > 20 ? line.substring(0, 17) + '...' : line;
-                textEl.appendChild(tspan);
+        if (lines.length <= 3) {
+            lines.forEach((line, i) => {
+                if (lines.length === 1) {
+                    textEl.textContent = line;
+                } else {
+                    const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                    tspan.setAttribute('x', x);
+                    tspan.setAttribute('y', y + (i - (lines.length - 1) / 2) * 14);
+                    tspan.textContent = line;
+                    textEl.appendChild(tspan);
+                }
             });
+        } else {
+            textEl.textContent = text.substring(0, 25) + '...';
         }
         
         return textEl;

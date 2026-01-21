@@ -10,38 +10,33 @@
     --success-color: #10b981;
     --success-hover: #059669;
     --danger-color: #ef4444;
-    --danger-hover: #dc2626;
     --secondary-color: #6b7280;
     --background: #f8fafc;
     --surface: #ffffff;
     --text-primary: #1e293b;
     --text-secondary: #64748b;
     --border-color: #e2e8f0;
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     --radius: 12px;
-    --transition: all 0.3s ease;
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: var(--background);
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 1600px;
     margin: 0 auto;
     padding: 20px;
-    width: 100%;
 }
 
+/* Header */
 header {
     text-align: center;
     padding: 40px 20px;
@@ -61,13 +56,9 @@ header h1 {
 header .subtitle {
     font-size: 1.1rem;
     opacity: 0.95;
-    font-weight: 400;
 }
 
-main {
-    flex: 1;
-}
-
+/* Upload Section */
 .upload-section {
     background: var(--surface);
     border-radius: var(--radius);
@@ -81,8 +72,8 @@ main {
     border-radius: var(--radius);
     padding: 40px;
     text-align: center;
-    transition: var(--transition);
     cursor: pointer;
+    transition: all 0.3s ease;
     background: var(--background);
 }
 
@@ -107,7 +98,6 @@ main {
 .upload-content h3 {
     font-size: 1.5rem;
     margin-bottom: 10px;
-    color: var(--text-primary);
 }
 
 .upload-content p {
@@ -138,7 +128,6 @@ main {
     font-size: 1.2rem;
     padding: 5px 10px;
     border-radius: 4px;
-    transition: var(--transition);
 }
 
 .btn-clear:hover {
@@ -146,6 +135,7 @@ main {
     color: var(--danger-color);
 }
 
+/* Buttons */
 .btn {
     padding: 12px 24px;
     border: none;
@@ -153,7 +143,7 @@ main {
     font-size: 1rem;
     font-weight: 500;
     cursor: pointer;
-    transition: var(--transition);
+    transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -184,20 +174,6 @@ main {
 
 .btn-success:hover:not(:disabled) {
     background: var(--success-hover);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.btn-secondary {
-    background: var(--secondary-color);
-    color: white;
-    padding: 8px 16px;
-    font-size: 1.2rem;
-    margin-top: 0;
-}
-
-.btn-secondary:hover {
-    background: #4b5563;
 }
 
 .loader {
@@ -213,6 +189,7 @@ main {
     to { transform: rotate(360deg); }
 }
 
+/* Alert */
 .alert {
     padding: 16px 20px;
     border-radius: 8px;
@@ -220,18 +197,6 @@ main {
     display: flex;
     align-items: center;
     gap: 12px;
-    animation: slideDown 0.3s ease;
-}
-
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 .alert-error {
@@ -256,15 +221,10 @@ main {
     font-size: 1.2rem;
     padding: 4px 8px;
     border-radius: 4px;
-    transition: var(--transition);
 }
 
-.alert-close:hover {
-    background: rgba(0, 0, 0, 0.1);
-}
-
-.flowchart-section,
-.code-section {
+/* Flowchart Section */
+.flowchart-section {
     background: var(--surface);
     border-radius: var(--radius);
     padding: 30px;
@@ -273,12 +233,7 @@ main {
 }
 
 .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 15px;
 }
 
 .section-header h2 {
@@ -286,61 +241,121 @@ main {
     color: var(--text-primary);
 }
 
-.controls {
+/* Flowchart Wrapper */
+.flowchart-wrapper {
     display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 30px;
+}
+
+/* Panel */
+.flowchart-panel {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.panel-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.panel-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.btn-download {
+    background: var(--success-color);
+    color: white;
+    border-color: var(--success-color);
+}
+
+.btn-download:hover {
+    background: var(--success-hover);
+    border-color: var(--success-hover);
+}
+
+/* Panel Viewport */
+.panel-viewport {
+    position: relative;
+    height: 500px;
+    overflow: hidden;
+    background: #fafafa;
+    background-image: 
+        linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.panel-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    transition: transform 0.1s ease-out;
 }
 
 .flowchart-container {
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    overflow: auto;
-    background: white;
-    max-height: 800px;
-}
-
-.flowchart-wrapper {
     padding: 20px;
-    min-height: 400px;
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
-    transition: transform 0.3s ease;
-    transform-origin: top center;
 }
 
-.flowchart-section-item {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
+.panel-zoom-info {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
 }
 
-.section-title {
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--primary-color);
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid var(--primary-color);
+.no-data {
     text-align: center;
+    color: var(--text-secondary);
+    padding: 40px;
 }
 
-.flowchart-container-inner {
-    background: white;
-    padding: 20px;
-    border-radius: 6px;
-    min-height: 300px;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    overflow: auto;
-}
-
-.flowchart-container-inner svg {
-    display: block;
-    margin: 0 auto;
+/* Code Section */
+.code-section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 30px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 20px;
 }
 
 .code-section pre {
@@ -350,15 +365,11 @@ main {
     border-radius: 8px;
     overflow-x: auto;
     font-family: 'Courier New', monospace;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     line-height: 1.5;
 }
 
-.code-section code {
-    display: block;
-    white-space: pre;
-}
-
+/* Footer */
 footer {
     text-align: center;
     padding: 30px 20px;
@@ -367,14 +378,10 @@ footer {
     margin-top: 40px;
 }
 
-/* Адаптивность */
+/* Responsive */
 @media (max-width: 768px) {
     header h1 {
-        font-size: 2rem;
-    }
-    
-    header .subtitle {
-        font-size: 1rem;
+        font-size: 1.8rem;
     }
     
     .upload-section,
@@ -383,86 +390,12 @@ footer {
         padding: 20px;
     }
     
-    .upload-area {
-        padding: 30px 20px;
+    .panel-viewport {
+        height: 400px;
     }
     
-    .section-header {
+    .panel-header {
         flex-direction: column;
-        align-items: flex-start;
+        gap: 10px;
     }
-    
-    .controls {
-        width: 100%;
-    }
-    
-    .btn {
-        width: 100%;
-        justify-content: center;
-    }
-}
-
-@media (max-width: 480px) {
-    .container {
-        padding: 10px;
-    }
-    
-    header {
-        padding: 30px 15px;
-    }
-    
-    header h1 {
-        font-size: 1.5rem;
-    }
-    
-    .upload-icon {
-        width: 48px;
-        height: 48px;
-    }
-}
-
-/* SVG стили */
-svg text {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-}
-
-svg rect {
-    min-width: 100px;
-    min-height: 40px;
-}
-
-/* Легенда блок-схемы */
-.flowchart-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    padding: 15px;
-    background: #f8fafc;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    font-size: 0.85rem;
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.legend-color {
-    width: 20px;
-    height: 3px;
-    border-radius: 2px;
-}
-
-.legend-color.yes {
-    background: #10b981;
-}
-
-.legend-color.no {
-    background: #ef4444;
-}
-
-.legend-color.normal {
-    background: #2563eb;
 }
