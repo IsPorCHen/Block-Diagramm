@@ -1,6 +1,17 @@
 /**
  * FlowchartRenderer - Рендерер блок-схем
- * Структура как на референсе: ветвления влево/вправо
+ * 
+ * Циклы (for/while): шестиугольник
+ *   - Вход сверху
+ *   - Тело цикла вниз
+ *   - Обратная связь СЛЕВА
+ *   - Выход СПРАВА
+ * 
+ * Условия (if): ромб
+ *   - "да" вниз
+ *   - "нет" вправо
+ * 
+ * Классы: от полей веером к методам
  */
 class FlowchartRenderer {
     constructor(container) {
@@ -9,50 +20,59 @@ class FlowchartRenderer {
         this.nodePositions = new Map();
         
         // Размеры
-        this.nodeWidth = 200;
+        this.nodeWidth = 180;
         this.nodeHeight = 40;
-        this.conditionSize = 50;
-        this.verticalGap = 50;
+        this.conditionSize = 45;
+        this.hexWidth = 180;
+        this.hexHeight = 40;
+        this.verticalGap = 60;  // Увеличен для лучшего разделения
         this.horizontalGap = 120;
-        this.padding = 60;
+        this.padding = 80;
+        this.loopLeftOffset = 50;
         
-        // Цвета (сохраняем синий дизайн)
+        // Цвета
         this.colors = {
             fill: '#dbeafe',
             stroke: '#2563eb',
-            text: '#1e293b',
-            startEnd: '#2563eb',
-            startEndText: '#ffffff'
+            text: '#1e293b'
         };
     }
     
     render(flowchartData) {
         if (!flowchartData || !flowchartData.nodes || flowchartData.nodes.length === 0) {
             this.container.innerHTML = '<p class="no-data">Нет данных</p>';
-            return;
+            return { width: 400, height: 200 };
         }
         
         this.container.innerHTML = '';
+        this.nodePositions.clear();
         
         const { nodes, edges } = flowchartData;
         
-        // Рассчитываем позиции с учётом ветвлений
-        this.calculatePositions(nodes, edges);
+        // Строим граф
+        this.buildGraph(nodes, edges);
         
-        // Определяем размеры SVG
-        const bounds = this.getBounds();
+        // Проверяем, это класс или обычная схема
+        const isClassDiagram = nodes.some(n => n.type === 'class_start');
+        
+        if (isClassDiagram) {
+            this.calculateClassPositions(nodes, edges);
+        } else {
+            this.calculatePositions(nodes, edges);
+        }
+        
+        // Размеры SVG
+        const bounds = this.getBounds(nodes);
         
         // Создаём SVG
         this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         this.svg.setAttribute('width', bounds.width);
         this.svg.setAttribute('height', bounds.height);
         this.svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
-        this.svg.style.display = 'block';
         
-        // Маркеры стрелок
-        this.addMarkers();
+        this.addArrowMarker();
         
-        // Рисуем связи
+        // Рисуем связи (под узлами)
         edges.forEach(edge => this.drawEdge(edge, nodes));
         
         // Рисуем узлы
@@ -63,120 +83,213 @@ class FlowchartRenderer {
         return { width: bounds.width, height: bounds.height };
     }
     
-    calculatePositions(nodes, edges) {
-        this.nodePositions.clear();
-        
-        // Строим граф
-        const children = new Map();
-        const parents = new Map();
+    buildGraph(nodes, edges) {
+        this.children = new Map();
+        this.parents = new Map();
         
         nodes.forEach(n => {
-            children.set(n.id, []);
-            parents.set(n.id, []);
+            this.children.set(n.id, []);
+            this.parents.set(n.id, []);
         });
         
         edges.forEach(e => {
-            children.get(e.from)?.push({ to: e.to, branch: e.branch, label: e.label });
-            parents.get(e.to)?.push(e.from);
+            this.children.get(e.from)?.push({ to: e.to, branch: e.branch, label: e.label });
+            this.parents.get(e.to)?.push({ from: e.from, branch: e.branch });
         });
-        
-        // Находим стартовый узел
-        let startNode = nodes.find(n => n.type === 'start' || n.type === 'class_start');
-        if (!startNode) startNode = nodes.find(n => parents.get(n.id).length === 0);
-        if (!startNode && nodes.length > 0) startNode = nodes[0];
-        
-        // Позиционируем рекурсивно
-        const visited = new Set();
-        const centerX = 400;
-        
-        this.positionNode(startNode.id, centerX, this.padding, nodes, children, visited, 0);
     }
     
-    positionNode(nodeId, x, y, nodes, children, visited, depth) {
-        if (visited.has(nodeId)) return y;
-        visited.add(nodeId);
+    calculateClassPositions(nodes, edges) {
+        // Для классов: имя сверху, поля ниже, методы веером ещё ниже
+        const classNode = nodes.find(n => n.type === 'class_start');
+        const fieldsNode = nodes.find(n => n.type === 'input');
+        const methodNodes = nodes.filter(n => n.type === 'method');
+        
+        const centerX = 300;
+        let y = this.padding;
+        
+        // Имя класса
+        if (classNode) {
+            this.nodePositions.set(classNode.id, { x: centerX, y });
+            y += this.nodeHeight + this.verticalGap;
+        }
+        
+        // Поля
+        if (fieldsNode) {
+            this.nodePositions.set(fieldsNode.id, { x: centerX, y });
+            y += this.nodeHeight + this.verticalGap;
+        }
+        
+        // Методы веером
+        if (methodNodes.length > 0) {
+            const totalWidth = (methodNodes.length - 1) * (this.nodeWidth + 30);
+            let startX = centerX - totalWidth / 2;
+            
+            methodNodes.forEach((method, i) => {
+                this.nodePositions.set(method.id, { 
+                    x: startX + i * (this.nodeWidth + 30), 
+                    y 
+                });
+            });
+        }
+    }
+    
+    calculatePositions(nodes, edges) {
+        // Находим стартовый узел
+        let startNode = nodes.find(n => n.type === 'start');
+        if (!startNode) startNode = nodes[0];
+        if (!startNode) return;
+        
+        const positioned = new Set();
+        const centerX = 350;
+        
+        this.positionNode(startNode.id, centerX, this.padding, nodes, positioned, new Set());
+    }
+    
+    positionNode(nodeId, x, y, nodes, positioned, visiting) {
+        if (positioned.has(nodeId)) {
+            return this.nodePositions.get(nodeId)?.y || y;
+        }
+        
+        if (visiting.has(nodeId)) {
+            return y;
+        }
+        visiting.add(nodeId);
         
         const node = nodes.find(n => n.id === nodeId);
         if (!node) return y;
         
         this.nodePositions.set(nodeId, { x, y });
+        positioned.add(nodeId);
         
-        const nodeChildren = children.get(nodeId) || [];
+        const children = this.children.get(nodeId) || [];
         
-        // Узел условия - ветвление влево/вправо
+        // Фильтруем: убираем обратные связи циклов
+        const forwardChildren = children.filter(c => c.branch !== 'loop_back');
+        
+        let maxY = y;
+        const nodeH = this.getNodeHeight(node);
+        
+        // Условие (if) - "да" вниз, "нет" вправо
         if (node.type === 'condition') {
-            const yesChild = nodeChildren.find(c => c.branch === 'yes');
-            const noChild = nodeChildren.find(c => c.branch === 'no');
-            const loopChild = nodeChildren.find(c => c.branch === 'loop');
-            const otherChildren = nodeChildren.filter(c => !c.branch || c.branch === '');
+            const yesChild = forwardChildren.find(c => c.branch === 'yes');
+            const noChild = forwardChildren.find(c => c.branch === 'no');
+            const exitChildren = forwardChildren.filter(c => c.branch !== 'yes' && c.branch !== 'no');
             
-            let maxY = y;
-            
-            // "да" - вниз или влево
-            if (yesChild && !visited.has(yesChild.to)) {
-                const yesY = this.positionNode(yesChild.to, x, y + this.verticalGap + this.conditionSize, 
-                                               nodes, children, visited, depth + 1);
+            // "да" - вниз
+            if (yesChild && !positioned.has(yesChild.to)) {
+                const yesY = this.positionNode(
+                    yesChild.to, x, y + this.verticalGap + nodeH,
+                    nodes, positioned, new Set(visiting)
+                );
                 maxY = Math.max(maxY, yesY);
             }
             
             // "нет" - вправо
-            if (noChild && !visited.has(noChild.to)) {
+            if (noChild && !positioned.has(noChild.to)) {
                 const noX = x + this.horizontalGap + this.nodeWidth / 2;
-                const noY = this.positionNode(noChild.to, noX, y, nodes, children, visited, depth + 1);
+                const noY = this.positionNode(
+                    noChild.to, noX, y,
+                    nodes, positioned, new Set(visiting)
+                );
                 maxY = Math.max(maxY, noY);
             }
             
-            // Обычные дети (выход из условия без else)
-            otherChildren.forEach(child => {
-                if (!visited.has(child.to)) {
-                    const childY = this.positionNode(child.to, x, maxY + this.verticalGap + this.nodeHeight,
-                                                     nodes, children, visited, depth + 1);
-                    maxY = Math.max(maxY, childY);
+            // Выход (когда нет else)
+            exitChildren.forEach(child => {
+                if (!positioned.has(child.to)) {
+                    const exitY = this.positionNode(
+                        child.to, x, maxY + this.verticalGap + this.nodeHeight,
+                        nodes, positioned, new Set(visiting)
+                    );
+                    maxY = Math.max(maxY, exitY);
                 }
             });
             
             return maxY;
         }
         
-        // Обычный узел - дети идут вниз
-        let currentY = y;
-        nodeChildren.forEach(child => {
-            if (!visited.has(child.to)) {
-                currentY = this.positionNode(child.to, x, currentY + this.verticalGap + this.nodeHeight,
-                                             nodes, children, visited, depth + 1);
+        // Цикл (loop) - тело вниз, выход СПРАВА
+        if (node.type === 'loop') {
+            const bodyChild = forwardChildren.find(c => c.branch === 'loop_body');
+            const exitChildren = forwardChildren.filter(c => c.branch !== 'loop_body');
+            
+            // Тело цикла - вниз
+            if (bodyChild && !positioned.has(bodyChild.to)) {
+                const bodyY = this.positionNode(
+                    bodyChild.to, x, y + this.verticalGap + nodeH,
+                    nodes, positioned, new Set(visiting)
+                );
+                maxY = Math.max(maxY, bodyY);
+            }
+            
+            // Выход из цикла - справа, на том же уровне что и следующий блок
+            exitChildren.forEach(child => {
+                if (!positioned.has(child.to)) {
+                    const exitY = this.positionNode(
+                        child.to, x, maxY + this.verticalGap + this.nodeHeight,
+                        nodes, positioned, new Set(visiting)
+                    );
+                    maxY = Math.max(maxY, exitY);
+                }
+            });
+            
+            return maxY;
+        }
+        
+        // Обычный узел
+        let nextY = y + this.verticalGap + nodeH;
+        
+        forwardChildren.forEach(child => {
+            if (!positioned.has(child.to)) {
+                const childY = this.positionNode(
+                    child.to, x, nextY,
+                    nodes, positioned, new Set(visiting)
+                );
+                maxY = Math.max(maxY, childY);
+                nextY = maxY + this.verticalGap + this.nodeHeight;
             }
         });
         
-        return Math.max(y, currentY);
+        return Math.max(y, maxY);
     }
     
-    getBounds() {
+    getNodeHeight(node) {
+        if (node.type === 'condition') return this.conditionSize;
+        if (node.type === 'loop') return this.hexHeight / 2;
+        if (node.type === 'end') return 15;
+        return this.nodeHeight / 2;
+    }
+    
+    getBounds(nodes) {
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
         
         this.nodePositions.forEach(pos => {
-            minX = Math.min(minX, pos.x - this.nodeWidth / 2);
-            maxX = Math.max(maxX, pos.x + this.nodeWidth / 2);
-            minY = Math.min(minY, pos.y - this.nodeHeight / 2);
-            maxY = Math.max(maxY, pos.y + this.nodeHeight / 2);
+            minX = Math.min(minX, pos.x - this.nodeWidth / 2 - this.loopLeftOffset);
+            maxX = Math.max(maxX, pos.x + this.nodeWidth / 2 + this.horizontalGap);
+            minY = Math.min(minY, pos.y - this.nodeHeight - 30);
+            maxY = Math.max(maxY, pos.y + this.nodeHeight + 30);
         });
         
-        // Сдвигаем все позиции чтобы начинались от padding
+        if (!isFinite(minX)) {
+            return { width: 600, height: 400 };
+        }
+        
         const offsetX = this.padding - minX;
         const offsetY = this.padding - minY;
         
-        this.nodePositions.forEach((pos, id) => {
+        this.nodePositions.forEach(pos => {
             pos.x += offsetX;
             pos.y += offsetY;
         });
         
         return {
-            width: (maxX - minX) + this.padding * 2,
-            height: (maxY - minY) + this.padding * 2
+            width: Math.max(500, (maxX - minX) + this.padding * 2),
+            height: Math.max(300, (maxY - minY) + this.padding * 2)
         };
     }
     
-    addMarkers() {
+    addArrowMarker() {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
@@ -208,7 +321,7 @@ class FlowchartRenderer {
                 this.drawTerminator(g, pos.x, pos.y, node.text, true);
                 break;
             case 'end':
-                this.drawEndCircle(g, pos.x, pos.y);
+                this.drawEndSymbol(g, pos.x, pos.y);
                 break;
             case 'process':
                 this.drawRectangle(g, pos.x, pos.y, node.text);
@@ -219,6 +332,9 @@ class FlowchartRenderer {
                 break;
             case 'condition':
                 this.drawDiamond(g, pos.x, pos.y, node.text);
+                break;
+            case 'loop':
+                this.drawHexagon(g, pos.x, pos.y, node.text);
                 break;
             case 'method':
                 this.drawTerminator(g, pos.x, pos.y, node.text, false);
@@ -236,7 +352,6 @@ class FlowchartRenderer {
     }
     
     drawTerminator(g, x, y, text, withCircle = false) {
-        // Кружок сверху
         if (withCircle) {
             const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             circle.setAttribute('cx', x);
@@ -246,26 +361,21 @@ class FlowchartRenderer {
             g.appendChild(circle);
         }
         
-        // Овал
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         rect.setAttribute('x', x - this.nodeWidth / 2);
         rect.setAttribute('y', y - this.nodeHeight / 2);
         rect.setAttribute('width', this.nodeWidth);
         rect.setAttribute('height', this.nodeHeight);
         rect.setAttribute('rx', this.nodeHeight / 2);
-        rect.setAttribute('ry', this.nodeHeight / 2);
         rect.setAttribute('fill', this.colors.fill);
         rect.setAttribute('stroke', this.colors.stroke);
         rect.setAttribute('stroke-width', '2');
         g.appendChild(rect);
         
-        // Текст
-        const textEl = this.createText(x, y, text);
-        g.appendChild(textEl);
+        g.appendChild(this.createText(x, y, text));
     }
     
-    drawEndCircle(g, x, y) {
-        // Внешний ромб-выход
+    drawEndSymbol(g, x, y) {
         const size = 15;
         const outer = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         outer.setAttribute('points', `${x},${y-size} ${x+size},${y} ${x},${y+size} ${x-size},${y}`);
@@ -274,7 +384,6 @@ class FlowchartRenderer {
         outer.setAttribute('stroke-width', '2');
         g.appendChild(outer);
         
-        // Внутренний кружок
         const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         inner.setAttribute('cx', x);
         inner.setAttribute('cy', y);
@@ -292,13 +401,10 @@ class FlowchartRenderer {
         rect.setAttribute('fill', this.colors.fill);
         rect.setAttribute('stroke', this.colors.stroke);
         rect.setAttribute('stroke-width', '2');
-        if (dashed) {
-            rect.setAttribute('stroke-dasharray', '5,3');
-        }
+        if (dashed) rect.setAttribute('stroke-dasharray', '5,3');
         g.appendChild(rect);
         
-        const textEl = this.createText(x, y, text);
-        g.appendChild(textEl);
+        g.appendChild(this.createText(x, y, text));
     }
     
     drawParallelogram(g, x, y, text) {
@@ -320,18 +426,35 @@ class FlowchartRenderer {
         poly.setAttribute('stroke-width', '2');
         g.appendChild(poly);
         
-        const textEl = this.createText(x, y, text);
-        g.appendChild(textEl);
+        g.appendChild(this.createText(x, y, text));
     }
     
     drawDiamond(g, x, y, text) {
         const size = this.conditionSize;
+        const points = `${x},${y-size} ${x+size},${y} ${x},${y+size} ${x-size},${y}`;
+        
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', points);
+        poly.setAttribute('fill', this.colors.fill);
+        poly.setAttribute('stroke', this.colors.stroke);
+        poly.setAttribute('stroke-width', '2');
+        g.appendChild(poly);
+        
+        g.appendChild(this.createText(x, y, text, size * 1.6));
+    }
+    
+    drawHexagon(g, x, y, text) {
+        const w = this.hexWidth / 2;
+        const h = this.hexHeight / 2;
+        const cut = 20;
         
         const points = [
-            `${x},${y - size}`,
-            `${x + size},${y}`,
-            `${x},${y + size}`,
-            `${x - size},${y}`
+            `${x - w + cut},${y - h}`,
+            `${x + w - cut},${y - h}`,
+            `${x + w},${y}`,
+            `${x + w - cut},${y + h}`,
+            `${x - w + cut},${y + h}`,
+            `${x - w},${y}`
         ].join(' ');
         
         const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
@@ -341,8 +464,7 @@ class FlowchartRenderer {
         poly.setAttribute('stroke-width', '2');
         g.appendChild(poly);
         
-        const textEl = this.createText(x, y, text, size * 1.8);
-        g.appendChild(textEl);
+        g.appendChild(this.createText(x, y, text, this.hexWidth - 50));
     }
     
     drawEdge(edge, nodes) {
@@ -364,95 +486,145 @@ class FlowchartRenderer {
         
         this.svg.appendChild(pathEl);
         
-        // Метка
         if (edge.label) {
-            this.drawEdgeLabel(fromPos, toPos, edge);
+            this.drawEdgeLabel(fromPos, toPos, fromNode, edge);
         }
     }
     
     calculatePath(from, to, fromNode, toNode, edge) {
-        const fromH = fromNode?.type === 'condition' ? this.conditionSize : this.nodeHeight / 2;
-        const toH = toNode?.type === 'condition' ? this.conditionSize : this.nodeHeight / 2;
-        const toEndH = toNode?.type === 'end' ? 15 : toH;
+        const fromH = this.getOutputY(fromNode);
+        const toH = this.getInputY(toNode);
         
-        let x1, y1, x2, y2;
-        
-        // Определяем точки выхода/входа
-        if (edge.branch === 'yes' && fromNode?.type === 'condition') {
-            // "да" - выход снизу
-            x1 = from.x;
-            y1 = from.y + fromH;
-            x2 = to.x;
-            y2 = to.y - toEndH;
+        // Веер от полей класса к методам
+        if (edge.branch?.startsWith('fan_')) {
+            const x1 = from.x;
+            const y1 = from.y + this.nodeHeight / 2;
+            const x2 = to.x;
+            const y2 = to.y - this.nodeHeight / 2;
             
-            if (Math.abs(x1 - x2) < 10) {
+            const midY = y1 + (y2 - y1) / 3;
+            return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+        }
+        
+        // Обратная связь цикла - СЛЕВА
+        if (edge.branch === 'loop_back') {
+            const x1 = from.x - this.nodeWidth / 2;
+            const y1 = from.y;
+            const x2 = to.x - this.hexWidth / 2;
+            const y2 = to.y;
+            
+            const loopX = Math.min(x1, x2) - this.loopLeftOffset;
+            return `M ${x1} ${y1} L ${loopX} ${y1} L ${loopX} ${y2} L ${x2} ${y2}`;
+        }
+        
+        // Тело цикла - вниз
+        if (edge.branch === 'loop_body') {
+            const x1 = from.x;
+            const y1 = from.y + this.hexHeight / 2;
+            const x2 = to.x;
+            const y2 = to.y - toH;
+            
+            if (Math.abs(x1 - x2) < 5) {
                 return `M ${x1} ${y1} L ${x2} ${y2}`;
-            } else {
-                const midY = y1 + 20;
-                return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
             }
-        } else if (edge.branch === 'no' && fromNode?.type === 'condition') {
-            // "нет" - выход вправо
-            x1 = from.x + this.conditionSize;
-            y1 = from.y;
-            x2 = to.x - this.nodeWidth / 2 - 10;
-            y2 = to.y;
+            const midY = y1 + 25;
+            return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+        }
+        
+        // Выход из цикла - справа, потом вниз
+        if (fromNode?.type === 'loop' && !edge.branch) {
+            const x1 = from.x + this.hexWidth / 2;
+            const y1 = from.y;
+            const x2 = to.x;
+            const y2 = to.y - toH;
             
-            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2} L ${to.x - this.nodeWidth / 2} ${y2}`;
-        } else if (edge.branch === 'loop') {
-            // Обратная связь цикла - идёт справа вверх
-            x1 = from.x + this.nodeWidth / 2;
-            y1 = from.y;
-            x2 = to.x + this.conditionSize;
-            y2 = to.y;
+            const rightX = x1 + 30;
+            return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${y2} L ${x2} ${y2}`;
+        }
+        
+        // "да" от условия - вниз
+        if (edge.branch === 'yes') {
+            const x1 = from.x;
+            const y1 = from.y + this.conditionSize;
+            const x2 = to.x;
+            const y2 = to.y - toH;
             
-            const offset = 30;
-            return `M ${x1} ${y1} L ${x1 + offset} ${y1} L ${x1 + offset} ${y2} L ${x2} ${y2}`;
-        } else if (edge.branch === 'exception') {
-            // Исключение - выход вправо
-            x1 = from.x + this.nodeWidth / 2;
-            y1 = from.y;
-            x2 = to.x - this.nodeWidth / 2;
-            y2 = to.y;
+            if (Math.abs(x1 - x2) < 5) {
+                return `M ${x1} ${y1} L ${x2} ${y2}`;
+            }
+            const midY = y1 + 25;
+            return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+        }
+        
+        // "нет" от условия - вправо
+        if (edge.branch === 'no') {
+            const x1 = from.x + this.conditionSize;
+            const y1 = from.y;
+            const x2 = to.x;
+            const y2 = to.y;
+            
+            if (Math.abs(y1 - y2) < 5) {
+                return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y2}`;
+            }
+            const y2input = to.y - toH;
+            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2input}`;
+        }
+        
+        // Исключение
+        if (edge.branch === 'exception') {
+            const x1 = from.x + this.nodeWidth / 2;
+            const y1 = from.y;
+            const x2 = to.x - this.nodeWidth / 2;
+            const y2 = to.y;
             
             const midX = x1 + 30;
             return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
-        } else {
-            // Обычная связь - сверху вниз
-            x1 = from.x;
-            y1 = from.y + fromH;
-            x2 = to.x;
-            y2 = to.y - toEndH;
-            
-            // Если начало в терминаторе с кружком, учитываем
-            if (fromNode?.type === 'start' || fromNode?.type === 'class_start') {
-                y1 = from.y + this.nodeHeight / 2;
-            }
-            
-            if (Math.abs(x1 - x2) < 10) {
-                return `M ${x1} ${y1} L ${x2} ${y2}`;
-            } else {
-                const midY = (y1 + y2) / 2;
-                return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
-            }
         }
+        
+        // Обычная связь - вниз
+        const x1 = from.x;
+        const y1 = from.y + fromH;
+        const x2 = to.x;
+        const y2 = to.y - toH;
+        
+        if (Math.abs(x1 - x2) < 5) {
+            return `M ${x1} ${y1} L ${x2} ${y2}`;
+        }
+        
+        const midY = (y1 + y2) / 2;
+        return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
     }
     
-    drawEdgeLabel(from, to, edge) {
+    getOutputY(node) {
+        if (!node) return this.nodeHeight / 2;
+        if (node.type === 'condition') return this.conditionSize;
+        if (node.type === 'loop') return this.hexHeight / 2;
+        if (node.type === 'start' || node.type === 'class_start') return this.nodeHeight / 2;
+        return this.nodeHeight / 2;
+    }
+    
+    getInputY(node) {
+        if (!node) return this.nodeHeight / 2;
+        if (node.type === 'condition') return this.conditionSize;
+        if (node.type === 'loop') return this.hexHeight / 2;
+        if (node.type === 'end') return 15;
+        return this.nodeHeight / 2;
+    }
+    
+    drawEdgeLabel(from, to, fromNode, edge) {
         let x, y;
         
         if (edge.branch === 'yes') {
-            x = from.x - 15;
-            y = from.y + this.conditionSize + 15;
+            x = from.x - 20;
+            y = from.y + this.conditionSize + 18;
         } else if (edge.branch === 'no') {
-            x = from.x + this.conditionSize + 15;
-            y = from.y - 5;
+            x = from.x + this.conditionSize + 5;
+            y = from.y - 8;
         } else if (edge.branch === 'exception') {
-            x = from.x + this.nodeWidth / 2 + 10;
-            y = from.y - 5;
+            x = from.x + this.nodeWidth / 2 + 5;
+            y = from.y - 8;
         } else {
-            x = (from.x + to.x) / 2 + 10;
-            y = (from.y + to.y) / 2;
+            return;
         }
         
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -466,28 +638,26 @@ class FlowchartRenderer {
         this.svg.appendChild(text);
     }
     
-    createText(x, y, text, maxWidth = 180) {
+    createText(x, y, text, maxWidth = 160) {
         const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         textEl.setAttribute('x', x);
         textEl.setAttribute('y', y);
         textEl.setAttribute('text-anchor', 'middle');
         textEl.setAttribute('dominant-baseline', 'middle');
         textEl.setAttribute('font-family', 'Arial, sans-serif');
-        textEl.setAttribute('font-size', '12');
+        textEl.setAttribute('font-size', '11');
         textEl.setAttribute('fill', this.colors.text);
         
-        // Разбиваем на строки
-        if (!text) {
-            return textEl;
-        }
+        if (!text) return textEl;
         
+        // Разбиваем текст
         const words = text.split(' ');
         const lines = [];
         let currentLine = '';
         
         words.forEach(word => {
             const testLine = currentLine ? currentLine + ' ' + word : word;
-            if (testLine.length * 7 > maxWidth && currentLine) {
+            if (testLine.length * 6.5 > maxWidth && currentLine) {
                 lines.push(currentLine);
                 currentLine = word;
             } else {
@@ -496,20 +666,26 @@ class FlowchartRenderer {
         });
         if (currentLine) lines.push(currentLine);
         
-        if (lines.length <= 3) {
-            lines.forEach((line, i) => {
-                if (lines.length === 1) {
-                    textEl.textContent = line;
-                } else {
-                    const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-                    tspan.setAttribute('x', x);
-                    tspan.setAttribute('y', y + (i - (lines.length - 1) / 2) * 14);
-                    tspan.textContent = line;
-                    textEl.appendChild(tspan);
-                }
-            });
+        if (lines.length > 3) {
+            lines.length = 3;
+            lines[2] = lines[2].substring(0, Math.max(0, lines[2].length - 3)) + '...';
+        }
+        
+        if (lines.length === 1) {
+            const displayText = text.length > 28 ? text.substring(0, 25) + '...' : text;
+            textEl.textContent = displayText;
         } else {
-            textEl.textContent = text.substring(0, 25) + '...';
+            const lineHeight = 13;
+            const startY = y - ((lines.length - 1) * lineHeight) / 2;
+            
+            lines.forEach((line, i) => {
+                const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                tspan.setAttribute('x', x);
+                tspan.setAttribute('y', startY + i * lineHeight);
+                const displayLine = line.length > 24 ? line.substring(0, 21) + '...' : line;
+                tspan.textContent = displayLine;
+                textEl.appendChild(tspan);
+            });
         }
         
         return textEl;

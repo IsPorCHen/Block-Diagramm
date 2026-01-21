@@ -6,32 +6,31 @@ app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024
 
 
 class FlowchartBuilder:
-    """Строитель блок-схем с поддержкой ветвлений, циклов, try/except и классов"""
+    """Строитель блок-схем"""
     
     def __init__(self):
         self.nodes = []
         self.edges = []
         self.node_id = 0
         
-    def add_node(self, node_type, text, extra=None):
+    def add_node(self, node_type, text):
         """Добавить узел"""
         node = {
             'id': self.node_id,
             'type': node_type,
             'text': text
         }
-        if extra:
-            node.update(extra)
         self.nodes.append(node)
         self.node_id += 1
         return node['id']
     
     def add_edge(self, from_id, to_id, label='', branch=''):
-        """Добавить связь (branch: 'yes', 'no', '' для обычной)"""
+        """Добавить связь"""
         for edge in self.edges:
             if edge['from'] == from_id and edge['to'] == to_id:
                 if label and not edge['label']:
                     edge['label'] = label
+                    edge['branch'] = branch
                 return edge
         
         edge = {
@@ -65,18 +64,15 @@ class FlowchartBuilder:
                 self.add_edge(lid, end_id)
     
     def build_class(self, node):
-        """Построить блок-схему класса"""
-        # Терминатор с именем класса
+        """Построить блок-схему класса - от полей веером к методам"""
         class_id = self.add_node('class_start', node.name)
         
-        # Собираем поля класса (из __init__ или атрибуты уровня класса)
         fields = []
         methods = []
         
         for item in node.body:
             if isinstance(item, ast.FunctionDef):
                 methods.append(item.name)
-                # Ищем self.x = ... в __init__
                 if item.name == '__init__':
                     for stmt in item.body:
                         if isinstance(stmt, ast.Assign):
@@ -86,12 +82,11 @@ class FlowchartBuilder:
                                    target.value.id == 'self':
                                     fields.append(target.attr)
             elif isinstance(item, ast.Assign):
-                # Атрибуты класса
                 for target in item.targets:
                     if isinstance(target, ast.Name):
                         fields.append(target.id)
         
-        # Блок полей класса
+        # Блок полей
         if fields:
             fields_text = ', '.join(fields)
             fields_id = self.add_node('input', f'Поля: {fields_text}')
@@ -100,10 +95,11 @@ class FlowchartBuilder:
         else:
             source_id = class_id
         
-        # Терминаторы методов (все соединены от полей)
-        for method_name in methods:
+        # Все методы соединены от полей ВЕЕРОМ (не линейно!)
+        for i, method_name in enumerate(methods):
             method_id = self.add_node('method', method_name + '()')
-            self.add_edge(source_id, method_id)
+            # Каждый метод напрямую от source_id с указанием позиции
+            self.add_edge(source_id, method_id, '', f'fan_{i}')
     
     def process_body(self, statements, prev_ids):
         """Обработать список операторов"""
@@ -211,7 +207,7 @@ class FlowchartBuilder:
         return prev_ids
     
     def process_if(self, stmt, prev_ids):
-        """Обработка IF с ветвлением влево/вправо"""
+        """IF - ромб, да вниз, нет вправо"""
         condition = self.get_expr_text(stmt.test)
         cond_id = self.add_node('condition', condition + '?')
         
@@ -251,63 +247,70 @@ class FlowchartBuilder:
             
             exit_ids.extend(no_ids)
         else:
+            # Нет else - условие также является выходом
             exit_ids.append(cond_id)
         
         exit_ids = [eid for eid in exit_ids if eid is not None]
         return exit_ids if exit_ids else [None]
     
     def process_while(self, stmt, prev_ids):
-        """Обработка WHILE"""
+        """WHILE - шестиугольник, обратная связь слева, выход справа"""
         condition = self.get_expr_text(stmt.test)
-        cond_id = self.add_node('condition', condition + '?')
+        # Тип loop - будет шестиугольник
+        loop_id = self.add_node('loop', condition)
         
         for pid in prev_ids:
             if pid is not None:
-                self.add_edge(pid, cond_id)
+                self.add_edge(pid, loop_id)
         
         if stmt.body:
             edge_idx = len(self.edges)
-            body_ids = self.process_body(stmt.body, [cond_id])
+            body_ids = self.process_body(stmt.body, [loop_id])
             
+            # Вход в тело - "да" вниз
             for i in range(edge_idx, len(self.edges)):
-                if self.edges[i]['from'] == cond_id and not self.edges[i]['label']:
-                    self.edges[i]['label'] = 'да'
-                    self.edges[i]['branch'] = 'yes'
+                if self.edges[i]['from'] == loop_id and not self.edges[i]['label']:
+                    self.edges[i]['label'] = ''
+                    self.edges[i]['branch'] = 'loop_body'
                     break
             
+            # Обратная связь от конца тела к циклу (слева)
             for bid in body_ids:
-                if bid is not None and bid != cond_id:
-                    self.add_edge(bid, cond_id, '', 'loop')
+                if bid is not None:
+                    self.add_edge(bid, loop_id, '', 'loop_back')
         
-        return [cond_id]
+        # Выход из цикла будет справа от шестиугольника
+        return [loop_id]  # loop_id как точка выхода (справа)
     
     def process_for(self, stmt, prev_ids):
-        """Обработка FOR"""
+        """FOR - шестиугольник"""
         target = self.get_name(stmt.target)
         iter_val = self.get_expr_text(stmt.iter)
         
-        cond_id = self.add_node('condition', f'есть элементы в {iter_val}?')
+        # Шестиугольник цикла
+        loop_id = self.add_node('loop', f'для {target} в {iter_val}')
         
         for pid in prev_ids:
             if pid is not None:
-                self.add_edge(pid, cond_id)
-        
-        # Блок получения элемента
-        get_id = self.add_node('process', f'взять следующий элемент {target}')
-        self.add_edge(cond_id, get_id, 'да', 'yes')
+                self.add_edge(pid, loop_id)
         
         if stmt.body:
-            body_ids = self.process_body(stmt.body, [get_id])
+            edge_idx = len(self.edges)
+            body_ids = self.process_body(stmt.body, [loop_id])
+            
+            for i in range(edge_idx, len(self.edges)):
+                if self.edges[i]['from'] == loop_id and not self.edges[i]['label']:
+                    self.edges[i]['branch'] = 'loop_body'
+                    break
             
             for bid in body_ids:
                 if bid is not None:
-                    self.add_edge(bid, cond_id, '', 'loop')
+                    self.add_edge(bid, loop_id, '', 'loop_back')
         
-        return [cond_id]
+        return [loop_id]
     
     def process_try(self, stmt, prev_ids):
-        """Обработка TRY/EXCEPT"""
-        # Блок try
+        """TRY/EXCEPT"""
         try_id = self.add_node('try_start', 'try')
         
         for pid in prev_ids:
@@ -316,12 +319,10 @@ class FlowchartBuilder:
         
         exit_ids = []
         
-        # Тело try
         if stmt.body:
             try_body_ids = self.process_body(stmt.body, [try_id])
             exit_ids.extend(try_body_ids)
         
-        # Обработчики except
         for handler in stmt.handlers:
             if handler.type:
                 exc_name = self.get_name(handler.type)
@@ -333,22 +334,17 @@ class FlowchartBuilder:
                 exc_text = 'except'
             
             except_id = self.add_node('except', exc_text)
-            self.add_edge(try_id, except_id, 'исключение', 'exception')
+            self.add_edge(try_id, except_id, 'ошибка', 'exception')
             
             if handler.body:
                 except_body_ids = self.process_body(handler.body, [except_id])
                 exit_ids.extend(except_body_ids)
         
-        # finally
         if stmt.finalbody:
             finally_id = self.add_node('finally', 'finally')
-            
-            # Соединяем все выходы с finally
-            new_exit_ids = []
             for eid in exit_ids:
                 if eid is not None:
                     self.add_edge(eid, finally_id)
-            
             finally_body_ids = self.process_body(stmt.finalbody, [finally_id])
             return finally_body_ids
         
@@ -356,7 +352,6 @@ class FlowchartBuilder:
         return exit_ids if exit_ids else [None]
     
     def get_name(self, node):
-        """Получить имя"""
         if isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.Attribute):
@@ -368,7 +363,6 @@ class FlowchartBuilder:
         return 'var'
     
     def get_expr_text(self, node):
-        """Получить текст выражения"""
         if isinstance(node, ast.Constant):
             if isinstance(node.value, str):
                 s = node.value
@@ -429,7 +423,6 @@ class FlowchartBuilder:
         return 'expr'
     
     def get_op(self, op):
-        """Получить символ операции"""
         ops = {
             ast.Add: '+', ast.Sub: '-', ast.Mult: '*', ast.Div: '/',
             ast.Mod: '%', ast.Pow: '**', ast.FloorDiv: '//',
@@ -442,7 +435,6 @@ class FlowchartBuilder:
         return ops.get(type(op), '?')
     
     def get_unary_op(self, op):
-        """Получить унарную операцию"""
         ops = {
             ast.Not: 'not ',
             ast.UAdd: '+',
@@ -451,7 +443,6 @@ class FlowchartBuilder:
         return ops.get(type(op), '?')
     
     def get_flowchart_data(self):
-        """Получить данные"""
         return {
             'nodes': self.nodes,
             'edges': self.edges
@@ -500,7 +491,6 @@ def upload_file():
                     'flowchart': builder.get_flowchart_data()
                 })
             elif isinstance(node, ast.ClassDef):
-                # Блок-схема класса
                 class_builder = FlowchartBuilder()
                 class_builder.build_class(node)
                 classes.append({
@@ -509,7 +499,6 @@ def upload_file():
                     'flowchart': class_builder.get_flowchart_data()
                 })
                 
-                # Методы класса как отдельные блок-схемы
                 for item in node.body:
                     if isinstance(item, ast.FunctionDef):
                         method_builder = FlowchartBuilder()
@@ -520,7 +509,6 @@ def upload_file():
                             'flowchart': method_builder.get_flowchart_data()
                         })
         
-        # Основной код
         main_builder = FlowchartBuilder()
         main_body = [stmt for stmt in tree.body 
                      if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
