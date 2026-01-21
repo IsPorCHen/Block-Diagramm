@@ -295,12 +295,12 @@ main {
 .flowchart-container {
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    overflow: hidden;
+    overflow: auto;
     background: white;
+    max-height: 800px;
 }
 
 .flowchart-wrapper {
-    overflow: auto;
     padding: 20px;
     min-height: 400px;
     display: flex;
@@ -335,6 +335,7 @@ main {
     display: flex;
     justify-content: center;
     align-items: flex-start;
+    overflow: auto;
 }
 
 .flowchart-container-inner svg {
@@ -355,6 +356,7 @@ main {
 
 .code-section code {
     display: block;
+    white-space: pre;
 }
 
 footer {
@@ -419,6 +421,7 @@ footer {
     }
 }
 
+/* SVG стили */
 svg text {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
@@ -428,6 +431,38 @@ svg rect {
     min-height: 40px;
 }
 
-svg path[fill="#dbeafe"] {
-    stroke-width: 2;
+/* Легенда блок-схемы */
+.flowchart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    padding: 15px;
+    background: #f8fafc;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.85rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.legend-color {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.legend-color.yes {
+    background: #10b981;
+}
+
+.legend-color.no {
+    background: #ef4444;
+}
+
+.legend-color.normal {
+    background: #2563eb;
 }

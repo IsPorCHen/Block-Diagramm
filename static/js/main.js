@@ -1,6 +1,12 @@
+/**
+ * Основной JavaScript модуль приложения
+ * Управляет загрузкой файлов и генерацией блок-схем
+ */
+
 let currentFile = null;
 let currentScale = 1;
 
+// DOM элементы
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 const selectFileBtn = document.getElementById('selectFileBtn');
@@ -18,6 +24,9 @@ const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const resetZoomBtn = document.getElementById('resetZoomBtn');
 
+/**
+ * Инициализация обработчиков событий
+ */
 function initEventListeners() {
     selectFileBtn.addEventListener('click', () => fileInput.click());
     
@@ -33,35 +42,50 @@ function initEventListeners() {
         clearFile();
     });
     
+    // Drag and Drop
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
 
+    // Кнопки управления
     generateBtn.addEventListener('click', generateFlowchart);
     exportBtn.addEventListener('click', exportToPNG);
     
+    // Масштабирование
     zoomInBtn.addEventListener('click', () => zoom(1.2));
     zoomOutBtn.addEventListener('click', () => zoom(0.8));
     resetZoomBtn.addEventListener('click', resetZoom);
 }
 
+/**
+ * Обработка выбора файла
+ */
 function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) setFile(file);
 }
 
+/**
+ * Обработка перетаскивания (drag over)
+ */
 function handleDragOver(e) {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.add('dragover');
 }
 
+/**
+ * Обработка выхода из зоны перетаскивания
+ */
 function handleDragLeave(e) {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.remove('dragover');
 }
 
+/**
+ * Обработка сброса файла (drop)
+ */
 function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -71,6 +95,9 @@ function handleDrop(e) {
     if (file) setFile(file);
 }
 
+/**
+ * Установка выбранного файла
+ */
 function setFile(file) {
     if (!file.name.endsWith('.py')) {
         showError('Пожалуйста, выберите файл с расширением .py');
@@ -90,6 +117,9 @@ function setFile(file) {
     hideError();
 }
 
+/**
+ * Очистка выбранного файла
+ */
 function clearFile() {
     currentFile = null;
     fileInput.value = '';
@@ -100,6 +130,9 @@ function clearFile() {
     codeSection.style.display = 'none';
 }
 
+/**
+ * Генерация блок-схемы
+ */
 async function generateFlowchart() {
     if (!currentFile) return;
 
@@ -129,18 +162,21 @@ async function generateFlowchart() {
         const wrapper = document.getElementById('flowchartWrapper');
         wrapper.innerHTML = '';
 
-        if (data.main_flowchart && data.main_flowchart.length > 0) {
+        // Отрисовка основной блок-схемы
+        if (data.main_flowchart && data.main_flowchart.nodes && data.main_flowchart.nodes.length > 0) {
             renderFlowchart('main', 'Основной алгоритм', data.main_flowchart);
         }
 
+        // Отрисовка блок-схем функций
         if (data.functions && data.functions.length > 0) {
             data.functions.forEach(func => {
-                if (func.blocks && func.blocks.length > 0) {
-                    renderFlowchart(`func-${func.name}`, `Функция: ${func.name}`, func.blocks);
+                if (func.flowchart && func.flowchart.nodes && func.flowchart.nodes.length > 0) {
+                    renderFlowchart(`func-${func.name}`, `Функция: ${func.name}`, func.flowchart);
                 }
             });
         }
 
+        // Показываем исходный код
         sourceCode.textContent = data.code;
         codeSection.style.display = 'block';
         
@@ -160,7 +196,10 @@ async function generateFlowchart() {
     }
 }
 
-function renderFlowchart(id, title, blocks) {
+/**
+ * Отрисовка блок-схемы
+ */
+function renderFlowchart(id, title, flowchartData) {
     const wrapper = document.getElementById('flowchartWrapper');
 
     const section = document.createElement('div');
@@ -173,50 +212,75 @@ function renderFlowchart(id, title, blocks) {
     wrapper.appendChild(section);
     
     const renderer = new FlowchartRenderer(`flowchart-${id}`);
-    renderer.render(blocks);
+    renderer.render(flowchartData);
     
-    console.log(`✅ Отрисована блок-схема: ${title} (${blocks.length} блоков)`);
+    const nodeCount = flowchartData.nodes ? flowchartData.nodes.length : 0;
+    const edgeCount = flowchartData.edges ? flowchartData.edges.length : 0;
+    console.log(`✅ Отрисована блок-схема: ${title} (${nodeCount} узлов, ${edgeCount} связей)`);
 }
 
+/**
+ * Масштабирование
+ */
 function zoom(factor) {
     currentScale *= factor;
-    currentScale = Math.max(0.5, Math.min(currentScale, 3));
+    currentScale = Math.max(0.3, Math.min(currentScale, 3));
     applyZoom();
 }
 
+/**
+ * Сброс масштаба
+ */
 function resetZoom() {
     currentScale = 1;
     applyZoom();
 }
 
+/**
+ * Применение масштаба
+ */
 function applyZoom() {
     const wrapper = document.getElementById('flowchartWrapper');
     wrapper.style.transform = `scale(${currentScale})`;
     wrapper.style.transformOrigin = 'top center';
 }
 
+/**
+ * Экспорт в PNG
+ */
 async function exportToPNG() {
     try {
         exportBtn.disabled = true;
         exportBtn.textContent = 'Экспортирование...';
 
-        const svgElement = document.querySelector('#flowchart-main svg');
+        const svgElement = document.querySelector('#flowchartWrapper svg');
         if (!svgElement) {
             throw new Error('Блок-схема не найдена');
         }
         
+        // Получаем размеры SVG
+        const viewBox = svgElement.getAttribute('viewBox');
+        const [, , vbWidth, vbHeight] = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 800, 600];
+        
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         
-        const bbox = svgElement.getBBox();
+        const scale = 2; // Увеличиваем для лучшего качества
         const padding = 40;
-        canvas.width = bbox.width + padding * 2;
-        canvas.height = bbox.height + padding * 2;
         
+        canvas.width = (vbWidth + padding * 2) * scale;
+        canvas.height = (vbHeight + padding * 2) * scale;
+        
+        ctx.scale(scale, scale);
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const svgString = new XMLSerializer().serializeToString(svgElement);
+        // Клонируем SVG и настраиваем
+        const svgClone = svgElement.cloneNode(true);
+        svgClone.setAttribute('width', vbWidth);
+        svgClone.setAttribute('height', vbHeight);
+        
+        const svgString = new XMLSerializer().serializeToString(svgClone);
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
 
@@ -232,47 +296,62 @@ async function exportToPNG() {
                 link.click();
                 URL.revokeObjectURL(link.href);
                 
-                exportBtn.disabled = false;
-                exportBtn.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                    Экспортировать в PNG
-                `;
+                resetExportBtn();
             });
         };
+        
+        img.onerror = function() {
+            URL.revokeObjectURL(url);
+            throw new Error('Ошибка загрузки изображения');
+        };
+        
         img.src = url;
         
     } catch (error) {
         showError('Ошибка при экспорте: ' + error.message);
-        exportBtn.disabled = false;
-        exportBtn.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            Экспортировать в PNG
-        `;
+        resetExportBtn();
     }
 }
 
+/**
+ * Сброс кнопки экспорта
+ */
+function resetExportBtn() {
+    exportBtn.disabled = false;
+    exportBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Экспортировать в PNG
+    `;
+}
+
+/**
+ * Показать ошибку
+ */
 function showError(message) {
     errorMessage.textContent = message;
     errorAlert.style.display = 'flex';
     errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/**
+ * Скрыть ошибку
+ */
 function hideError() {
     errorAlert.style.display = 'none';
 }
 
+/**
+ * Закрыть alert
+ */
 function closeAlert() {
     hideError();
 }
 
+// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
     console.log('✅ Приложение загружено');
     initEventListeners();
