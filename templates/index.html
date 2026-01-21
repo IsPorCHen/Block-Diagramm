@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор блок-схем из Python кода</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔷 Генератор блок-схем</h1>
+            <p class="subtitle">Автоматическое создание блок-схем из Python кода по ГОСТ</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <h3>Загрузите файл Python</h3>
+                        <p>Перетащите файл .py сюда или нажмите для выбора</p>
+                        <input type="file" id="fileInput" accept=".py" hidden>
+                        <button class="btn btn-primary" id="selectFileBtn">Выбрать файл</button>
+                    </div>
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <span class="file-name" id="fileName"></span>
+                        <button class="btn-clear" id="clearFileBtn">✕</button>
+                    </div>
+                </div>
+
+                <button class="btn btn-success" id="generateBtn" disabled>
+                    <span class="btn-text">Сгенерировать блок-схему</span>
+                    <span class="loader" style="display: none;"></span>
+                </button>
+            </section>
+
+            <div class="alert alert-error" id="errorAlert" style="display: none;">
+                <span class="alert-icon">⚠️</span>
+                <span class="alert-message" id="errorMessage"></span>
+                <button class="alert-close" onclick="closeAlert()">✕</button>
+            </div>
+
+            <section class="flowchart-section" id="flowchartSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Блок-схема</h2>
+                    <div class="controls">
+                        <button class="btn btn-secondary" id="zoomInBtn" title="Увеличить">+</button>
+                        <button class="btn btn-secondary" id="zoomOutBtn" title="Уменьшить">−</button>
+                        <button class="btn btn-secondary" id="resetZoomBtn" title="Сбросить масштаб">⟲</button>
+                        <button class="btn btn-primary" id="exportBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Экспортировать в PNG
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flowchart-container">
+                    <div class="flowchart-wrapper" id="flowchartWrapper">
+                        <!-- блок схемы -->
+                    </div>
+                </div>
+            </section>
+
+            <section class="code-section" id="codeSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Исходный код</h2>
+                </div>
+                <pre><code id="sourceCode"></code></pre>
+            </section>
+        </main>
+
+        <footer>
+            <p>Курсовой проект © 2026 | ГАПОУ СО «ЕКТС» | Разработчик: Юнусов Р.А.</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/flowchart-renderer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
