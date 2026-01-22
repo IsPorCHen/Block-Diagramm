@@ -1,12 +1,10 @@
-# <div align="center"><img src="https://github.com/IsPorCHen/Block-Diagramm/blob/main/logo.png?raw=true" alt="Flowchart Generator Logo" width="400" height="80"/></div>
-
-* Flowchart Generator — это веб-приложение для автоматической генерации блок-схем из исходного кода на языке Python. Система анализирует загруженный код и создаёт визуальное представление алгоритма в соответствии с ГОСТ 19.701-90.
+* Block Diagramm — это веб-приложение для автоматической генерации блок-схем из исходного кода на языке Python. Система анализирует загруженный код и создаёт визуальное представление алгоритма в соответствии с ГОСТ 19.701-90.
 * Проект реализован с использованием стека технологий HTML, CSS, JavaScript, Python и фреймворка Flask.
 
-![alt text](https://github.com/IsPorCHen/Block-Diagramm/blob/main/screenshots/main_interface.png "Главный интерфейс")
+![alt text](https://github.com/IsPorCHen/pictures/blob/main/image_2026-01-22_11-50-09.jpg "Главный интерфейс")
 
 На сайте присутствует генератор блок-схем, работающий по принципу анализа синтаксического дерева кода Python.
-![alt text](https://github.com/IsPorCHen/Block-Diagramm/blob/main/screenshots/flowchart_example.png "Пример блок-схемы")
+![alt text](https://github.com/IsPorCHen/pictures/blob/main/image_2026-01-22_18-02-41.jpg "Пример блок-схемы")
 
 # Технологический стек
 * Фронтенд: HTML5, CSS3, Vanilla JavaScript
