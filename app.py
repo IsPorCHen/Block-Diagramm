@@ -60,7 +60,13 @@ class FlowchartBuilder:
         
         end_id = self.add_node('end', '')
         for lid in last_ids:
-            if lid is not None:
+            if lid is None:
+                continue
+            if isinstance(lid, tuple) and lid[0] == 'no_empty':
+                self.add_edge(lid[1], end_id, 'нет', 'no')
+            elif isinstance(lid, tuple) and lid[0] == 'from_no_branch':
+                self.add_edge(lid[1], end_id, '', 'from_no')
+            else:
                 self.add_edge(lid, end_id)
     
     def build_class(self, node):
@@ -86,7 +92,7 @@ class FlowchartBuilder:
                     if isinstance(target, ast.Name):
                         fields.append(target.id)
         
-        # Блок полей
+        # блок полей
         if fields:
             fields_text = ', '.join(fields)
             fields_id = self.add_node('input', f'Поля: {fields_text}')
@@ -95,10 +101,8 @@ class FlowchartBuilder:
         else:
             source_id = class_id
         
-        # Все методы соединены от полей ВЕЕРОМ (не линейно!)
         for i, method_name in enumerate(methods):
             method_id = self.add_node('method', method_name + '()')
-            # Каждый метод напрямую от source_id с указанием позиции
             self.add_edge(source_id, method_id, '', f'fan_{i}')
     
     def process_body(self, statements, prev_ids):
@@ -115,14 +119,23 @@ class FlowchartBuilder:
     
     def process_statement(self, stmt, prev_ids):
         """Обработать один оператор"""
+
+        def add_edges_from_prev(target_id):
+            for pid in prev_ids:
+                if pid is None:
+                    continue
+                if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                    self.add_edge(pid[1], target_id, 'нет', 'no')
+                elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                    self.add_edge(pid[1], target_id, '', 'from_no')
+                else:
+                    self.add_edge(pid, target_id)
         
         if isinstance(stmt, ast.Assign):
             targets = ', '.join([self.get_name(t) for t in stmt.targets])
             value = self.get_expr_text(stmt.value)
             node_id = self.add_node('process', f'{targets} = {value}')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [node_id]
         
         elif isinstance(stmt, ast.AugAssign):
@@ -130,9 +143,7 @@ class FlowchartBuilder:
             op = self.get_op(stmt.op)
             value = self.get_expr_text(stmt.value)
             node_id = self.add_node('process', f'{target} {op}= {value}')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [node_id]
         
         elif isinstance(stmt, ast.Expr):
@@ -147,9 +158,7 @@ class FlowchartBuilder:
                 else:
                     node_id = self.add_node('process', f'{func_name}({args})')
                     
-                for pid in prev_ids:
-                    if pid is not None:
-                        self.add_edge(pid, node_id)
+                add_edges_from_prev(node_id)
                 return [node_id]
             return prev_ids
         
@@ -171,9 +180,7 @@ class FlowchartBuilder:
                 node_id = self.add_node('process', f'return {value}')
             else:
                 node_id = self.add_node('process', 'return')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [node_id]
         
         elif isinstance(stmt, ast.Raise):
@@ -182,23 +189,17 @@ class FlowchartBuilder:
                 node_id = self.add_node('process', f'raise {exc_text}')
             else:
                 node_id = self.add_node('process', 'raise')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [None]
         
         elif isinstance(stmt, ast.Break):
             node_id = self.add_node('process', 'break')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [None]
         
         elif isinstance(stmt, ast.Continue):
             node_id = self.add_node('process', 'continue')
-            for pid in prev_ids:
-                if pid is not None:
-                    self.add_edge(pid, node_id)
+            add_edges_from_prev(node_id)
             return [None]
         
         elif isinstance(stmt, ast.Pass):
@@ -212,12 +213,18 @@ class FlowchartBuilder:
         cond_id = self.add_node('condition', condition + '?')
         
         for pid in prev_ids:
-            if pid is not None:
+            if pid is None:
+                continue
+            if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                self.add_edge(pid[1], cond_id, 'нет', 'no')
+            elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                self.add_edge(pid[1], cond_id, '', 'from_no')
+            else:
                 self.add_edge(pid, cond_id)
         
         exit_ids = []
         
-        # Ветка "да"
+        # ветка "да"
         if stmt.body:
             edge_idx = len(self.edges)
             yes_ids = self.process_body(stmt.body, [cond_id])
@@ -230,7 +237,7 @@ class FlowchartBuilder:
             
             exit_ids.extend(yes_ids)
         
-        # Ветка "нет"
+        # ветка "нет"
         if stmt.orelse:
             edge_idx = len(self.edges)
             
@@ -245,10 +252,14 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'no'
                     break
             
-            exit_ids.extend(no_ids)
+            for nid in no_ids:
+                if nid is not None and not isinstance(nid, tuple):
+                    exit_ids.append(('from_no_branch', nid))
+                else:
+                    exit_ids.append(nid)
         else:
-            # Нет else - условие также является выходом
-            exit_ids.append(cond_id)
+            # нет else - помечаем условие как "пустую" ветку нет
+            exit_ids.append(('no_empty', cond_id))
         
         exit_ids = [eid for eid in exit_ids if eid is not None]
         return exit_ids if exit_ids else [None]
@@ -256,42 +267,55 @@ class FlowchartBuilder:
     def process_while(self, stmt, prev_ids):
         """WHILE - шестиугольник, обратная связь слева, выход справа"""
         condition = self.get_expr_text(stmt.test)
-        # Тип loop - будет шестиугольник
         loop_id = self.add_node('loop', condition)
         
         for pid in prev_ids:
-            if pid is not None:
+            if pid is None:
+                continue
+            if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                self.add_edge(pid[1], loop_id, 'нет', 'no')
+            elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                self.add_edge(pid[1], loop_id, '', 'from_no')
+            else:
                 self.add_edge(pid, loop_id)
         
         if stmt.body:
             edge_idx = len(self.edges)
             body_ids = self.process_body(stmt.body, [loop_id])
             
-            # Вход в тело - "да" вниз
             for i in range(edge_idx, len(self.edges)):
                 if self.edges[i]['from'] == loop_id and not self.edges[i]['label']:
                     self.edges[i]['label'] = ''
                     self.edges[i]['branch'] = 'loop_body'
                     break
             
-            # Обратная связь от конца тела к циклу (слева)
             for bid in body_ids:
-                if bid is not None:
+                if bid is None:
+                    continue
+                if isinstance(bid, tuple) and bid[0] == 'no_empty':
+                    self.add_edge(bid[1], loop_id, 'нет', 'loop_back')
+                elif isinstance(bid, tuple) and bid[0] == 'from_no_branch':
+                    self.add_edge(bid[1], loop_id, '', 'loop_back')
+                else:
                     self.add_edge(bid, loop_id, '', 'loop_back')
-        
-        # Выход из цикла будет справа от шестиугольника
-        return [loop_id]  # loop_id как точка выхода (справа)
+
+        return [loop_id]
     
     def process_for(self, stmt, prev_ids):
         """FOR - шестиугольник"""
         target = self.get_name(stmt.target)
         iter_val = self.get_expr_text(stmt.iter)
         
-        # Шестиугольник цикла
         loop_id = self.add_node('loop', f'для {target} в {iter_val}')
         
         for pid in prev_ids:
-            if pid is not None:
+            if pid is None:
+                continue
+            if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                self.add_edge(pid[1], loop_id, 'нет', 'no')
+            elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                self.add_edge(pid[1], loop_id, '', 'from_no')
+            else:
                 self.add_edge(pid, loop_id)
         
         if stmt.body:
@@ -304,7 +328,13 @@ class FlowchartBuilder:
                     break
             
             for bid in body_ids:
-                if bid is not None:
+                if bid is None:
+                    continue
+                if isinstance(bid, tuple) and bid[0] == 'no_empty':
+                    self.add_edge(bid[1], loop_id, 'нет', 'loop_back')
+                elif isinstance(bid, tuple) and bid[0] == 'from_no_branch':
+                    self.add_edge(bid[1], loop_id, '', 'loop_back')
+                else:
                     self.add_edge(bid, loop_id, '', 'loop_back')
         
         return [loop_id]
@@ -314,7 +344,13 @@ class FlowchartBuilder:
         try_id = self.add_node('try_start', 'try')
         
         for pid in prev_ids:
-            if pid is not None:
+            if pid is None:
+                continue
+            if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                self.add_edge(pid[1], try_id, 'нет', 'no')
+            elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                self.add_edge(pid[1], try_id, '', 'from_no')
+            else:
                 self.add_edge(pid, try_id)
         
         exit_ids = []
@@ -519,7 +555,13 @@ def upload_file():
             last_ids = main_builder.process_body(main_body, [start_id])
             end_id = main_builder.add_node('end', '')
             for lid in last_ids:
-                if lid is not None:
+                if lid is None:
+                    continue
+                if isinstance(lid, tuple) and lid[0] == 'no_empty':
+                    main_builder.add_edge(lid[1], end_id, 'нет', 'no')
+                elif isinstance(lid, tuple) and lid[0] == 'from_no_branch':
+                    main_builder.add_edge(lid[1], end_id, '', 'from_no')
+                else:
                     main_builder.add_edge(lid, end_id)
             main_flowchart = main_builder.get_flowchart_data()
 
