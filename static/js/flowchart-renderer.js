@@ -1,17 +1,9 @@
 /**
  * FlowchartRenderer - Рендерер блок-схем
  * 
- * Циклы (for/while): шестиугольник
- *   - Вход сверху
- *   - Тело цикла вниз
- *   - Обратная связь СЛЕВА
- *   - Выход СПРАВА
- * 
- * Условия (if): ромб
- *   - "да" вниз
- *   - "нет" вправо
- * 
- * Классы: от полей веером к методам
+ * Все стрелки входят в блоки СВЕРХУ с видимым вертикальным сегментом
+ * Циклы: шестиугольник, выход СПРАВА, обратная связь СЛЕВА
+ * Условия: ромб, "да" вниз, "нет" вправо
  */
 class FlowchartRenderer {
     constructor(container) {
@@ -25,10 +17,11 @@ class FlowchartRenderer {
         this.conditionSize = 45;
         this.hexWidth = 180;
         this.hexHeight = 40;
-        this.verticalGap = 60;  // Увеличен для лучшего разделения
-        this.horizontalGap = 120;
+        this.verticalGap = 70;  // Увеличен
+        this.horizontalGap = 130;
         this.padding = 80;
         this.loopLeftOffset = 50;
+        this.arrowGap = 25; // Минимальный отступ для стрелок
         
         // Цвета
         this.colors = {
@@ -49,10 +42,8 @@ class FlowchartRenderer {
         
         const { nodes, edges } = flowchartData;
         
-        // Строим граф
         this.buildGraph(nodes, edges);
         
-        // Проверяем, это класс или обычная схема
         const isClassDiagram = nodes.some(n => n.type === 'class_start');
         
         if (isClassDiagram) {
@@ -61,10 +52,8 @@ class FlowchartRenderer {
             this.calculatePositions(nodes, edges);
         }
         
-        // Размеры SVG
         const bounds = this.getBounds(nodes);
         
-        // Создаём SVG
         this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         this.svg.setAttribute('width', bounds.width);
         this.svg.setAttribute('height', bounds.height);
@@ -72,10 +61,7 @@ class FlowchartRenderer {
         
         this.addArrowMarker();
         
-        // Рисуем связи (под узлами)
         edges.forEach(edge => this.drawEdge(edge, nodes));
-        
-        // Рисуем узлы
         nodes.forEach(node => this.drawNode(node));
         
         this.container.appendChild(this.svg);
@@ -99,7 +85,6 @@ class FlowchartRenderer {
     }
     
     calculateClassPositions(nodes, edges) {
-        // Для классов: имя сверху, поля ниже, методы веером ещё ниже
         const classNode = nodes.find(n => n.type === 'class_start');
         const fieldsNode = nodes.find(n => n.type === 'input');
         const methodNodes = nodes.filter(n => n.type === 'method');
@@ -107,19 +92,16 @@ class FlowchartRenderer {
         const centerX = 300;
         let y = this.padding;
         
-        // Имя класса
         if (classNode) {
             this.nodePositions.set(classNode.id, { x: centerX, y });
             y += this.nodeHeight + this.verticalGap;
         }
         
-        // Поля
         if (fieldsNode) {
             this.nodePositions.set(fieldsNode.id, { x: centerX, y });
             y += this.nodeHeight + this.verticalGap;
         }
         
-        // Методы веером
         if (methodNodes.length > 0) {
             const totalWidth = (methodNodes.length - 1) * (this.nodeWidth + 30);
             let startX = centerX - totalWidth / 2;
@@ -134,7 +116,6 @@ class FlowchartRenderer {
     }
     
     calculatePositions(nodes, edges) {
-        // Находим стартовый узел
         let startNode = nodes.find(n => n.type === 'start');
         if (!startNode) startNode = nodes[0];
         if (!startNode) return;
@@ -162,20 +143,17 @@ class FlowchartRenderer {
         positioned.add(nodeId);
         
         const children = this.children.get(nodeId) || [];
-        
-        // Фильтруем: убираем обратные связи циклов
         const forwardChildren = children.filter(c => c.branch !== 'loop_back');
         
         let maxY = y;
-        const nodeH = this.getNodeHeight(node);
+        const nodeH = this.getNodeFullHeight(node);
         
-        // Условие (if) - "да" вниз, "нет" вправо
+        // Условие (if)
         if (node.type === 'condition') {
             const yesChild = forwardChildren.find(c => c.branch === 'yes');
             const noChild = forwardChildren.find(c => c.branch === 'no');
             const exitChildren = forwardChildren.filter(c => c.branch !== 'yes' && c.branch !== 'no');
             
-            // "да" - вниз
             if (yesChild && !positioned.has(yesChild.to)) {
                 const yesY = this.positionNode(
                     yesChild.to, x, y + this.verticalGap + nodeH,
@@ -184,7 +162,6 @@ class FlowchartRenderer {
                 maxY = Math.max(maxY, yesY);
             }
             
-            // "нет" - вправо
             if (noChild && !positioned.has(noChild.to)) {
                 const noX = x + this.horizontalGap + this.nodeWidth / 2;
                 const noY = this.positionNode(
@@ -194,7 +171,6 @@ class FlowchartRenderer {
                 maxY = Math.max(maxY, noY);
             }
             
-            // Выход (когда нет else)
             exitChildren.forEach(child => {
                 if (!positioned.has(child.to)) {
                     const exitY = this.positionNode(
@@ -208,12 +184,11 @@ class FlowchartRenderer {
             return maxY;
         }
         
-        // Цикл (loop) - тело вниз, выход СПРАВА
+        // Цикл (loop)
         if (node.type === 'loop') {
             const bodyChild = forwardChildren.find(c => c.branch === 'loop_body');
             const exitChildren = forwardChildren.filter(c => c.branch !== 'loop_body');
             
-            // Тело цикла - вниз
             if (bodyChild && !positioned.has(bodyChild.to)) {
                 const bodyY = this.positionNode(
                     bodyChild.to, x, y + this.verticalGap + nodeH,
@@ -222,7 +197,6 @@ class FlowchartRenderer {
                 maxY = Math.max(maxY, bodyY);
             }
             
-            // Выход из цикла - справа, на том же уровне что и следующий блок
             exitChildren.forEach(child => {
                 if (!positioned.has(child.to)) {
                     const exitY = this.positionNode(
@@ -253,11 +227,11 @@ class FlowchartRenderer {
         return Math.max(y, maxY);
     }
     
-    getNodeHeight(node) {
-        if (node.type === 'condition') return this.conditionSize;
-        if (node.type === 'loop') return this.hexHeight / 2;
-        if (node.type === 'end') return 15;
-        return this.nodeHeight / 2;
+    getNodeFullHeight(node) {
+        if (node.type === 'condition') return this.conditionSize * 2;
+        if (node.type === 'loop') return this.hexHeight;
+        if (node.type === 'end') return 30;
+        return this.nodeHeight;
     }
     
     getBounds(nodes) {
@@ -271,9 +245,7 @@ class FlowchartRenderer {
             maxY = Math.max(maxY, pos.y + this.nodeHeight + 30);
         });
         
-        if (!isFinite(minX)) {
-            return { width: 600, height: 400 };
-        }
+        if (!isFinite(minX)) return { width: 600, height: 400 };
         
         const offsetX = this.padding - minX;
         const offsetY = this.padding - minY;
@@ -308,6 +280,8 @@ class FlowchartRenderer {
         defs.appendChild(marker);
         this.svg.appendChild(defs);
     }
+    
+    // === ОТРИСОВКА УЗЛОВ ===
     
     drawNode(node) {
         const pos = this.nodePositions.get(node.id);
@@ -467,6 +441,8 @@ class FlowchartRenderer {
         g.appendChild(this.createText(x, y, text, this.hexWidth - 50));
     }
     
+    // === ОТРИСОВКА СВЯЗЕЙ ===
+    
     drawEdge(edge, nodes) {
         const fromPos = this.nodePositions.get(edge.from);
         const toPos = this.nodePositions.get(edge.to);
@@ -487,20 +463,24 @@ class FlowchartRenderer {
         this.svg.appendChild(pathEl);
         
         if (edge.label) {
-            this.drawEdgeLabel(fromPos, toPos, fromNode, edge);
+            this.drawEdgeLabel(fromPos, toPos, fromNode, toNode, edge);
         }
     }
     
     calculatePath(from, to, fromNode, toNode, edge) {
-        const fromH = this.getOutputY(fromNode);
-        const toH = this.getInputY(toNode);
+        // Получаем точки выхода и входа
+        const fromBottom = this.getBottomPoint(from, fromNode);
+        const fromRight = this.getRightPoint(from, fromNode);
+        const fromLeft = this.getLeftPoint(from, fromNode);
+        const toTop = this.getTopPoint(to, toNode);
+        const toLeft = this.getLeftPoint(to, toNode);
         
         // Веер от полей класса к методам
         if (edge.branch?.startsWith('fan_')) {
             const x1 = from.x;
-            const y1 = from.y + this.nodeHeight / 2;
+            const y1 = fromBottom.y;
             const x2 = to.x;
-            const y2 = to.y - this.nodeHeight / 2;
+            const y2 = toTop.y;
             
             const midY = y1 + (y2 - y1) / 3;
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
@@ -508,10 +488,10 @@ class FlowchartRenderer {
         
         // Обратная связь цикла - СЛЕВА
         if (edge.branch === 'loop_back') {
-            const x1 = from.x - this.nodeWidth / 2;
-            const y1 = from.y;
-            const x2 = to.x - this.hexWidth / 2;
-            const y2 = to.y;
+            const x1 = fromLeft.x;
+            const y1 = fromLeft.y;
+            const x2 = toLeft.x;
+            const y2 = toLeft.y;
             
             const loopX = Math.min(x1, x2) - this.loopLeftOffset;
             return `M ${x1} ${y1} L ${loopX} ${y1} L ${loopX} ${y2} L ${x2} ${y2}`;
@@ -519,109 +499,163 @@ class FlowchartRenderer {
         
         // Тело цикла - вниз
         if (edge.branch === 'loop_body') {
-            const x1 = from.x;
-            const y1 = from.y + this.hexHeight / 2;
-            const x2 = to.x;
-            const y2 = to.y - toH;
+            const x1 = fromBottom.x;
+            const y1 = fromBottom.y;
+            const x2 = toTop.x;
+            const y2 = toTop.y;
             
+            // Прямая линия вниз с небольшим отступом
             if (Math.abs(x1 - x2) < 5) {
                 return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
-            const midY = y1 + 25;
+            // Если не по центру - с изломом
+            const midY = y1 + this.arrowGap;
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
-        // Выход из цикла - справа, потом вниз
+        // Выход из цикла - СПРАВА и потом ВНИЗ к центру следующего блока
         if (fromNode?.type === 'loop' && !edge.branch) {
-            const x1 = from.x + this.hexWidth / 2;
-            const y1 = from.y;
-            const x2 = to.x;
-            const y2 = to.y - toH;
+            const x1 = fromRight.x;
+            const y1 = fromRight.y;
+            const x2 = toTop.x;
+            const y2 = toTop.y;
             
-            const rightX = x1 + 30;
-            return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${y2} L ${x2} ${y2}`;
+            // Вправо, потом вниз, потом к блоку сверху
+            const rightX = Math.max(x1 + this.arrowGap, to.x + this.nodeWidth / 2 + this.arrowGap);
+            const topY = y2 - this.arrowGap;
+            
+            return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
         }
         
-        // "да" от условия - вниз
+        // "да" от условия - ВНИЗ
         if (edge.branch === 'yes') {
-            const x1 = from.x;
-            const y1 = from.y + this.conditionSize;
-            const x2 = to.x;
-            const y2 = to.y - toH;
+            const x1 = fromBottom.x;
+            const y1 = fromBottom.y;
+            const x2 = toTop.x;
+            const y2 = toTop.y;
             
             if (Math.abs(x1 - x2) < 5) {
                 return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
-            const midY = y1 + 25;
+            const midY = y1 + this.arrowGap;
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
-        // "нет" от условия - вправо
+        // "нет" от условия - ВПРАВО и потом ВНИЗ к верху блока
         if (edge.branch === 'no') {
-            const x1 = from.x + this.conditionSize;
-            const y1 = from.y;
-            const x2 = to.x;
-            const y2 = to.y;
+            const x1 = fromRight.x;
+            const y1 = fromRight.y;
+            const x2 = toTop.x;
+            const y2 = toTop.y;
             
-            if (Math.abs(y1 - y2) < 5) {
-                return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y2}`;
+            // Если цель на том же уровне
+            if (Math.abs(from.y - to.y) < 10) {
+                return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y1}`;
             }
-            const y2input = to.y - toH;
-            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2input}`;
+            
+            // Вправо и потом вниз к верху целевого блока
+            const topY = y2 - this.arrowGap;
+            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${topY} L ${x2} ${y2}`;
         }
         
         // Исключение
         if (edge.branch === 'exception') {
             const x1 = from.x + this.nodeWidth / 2;
             const y1 = from.y;
-            const x2 = to.x - this.nodeWidth / 2;
-            const y2 = to.y;
+            const x2 = toTop.x;
+            const y2 = toTop.y;
             
-            const midX = x1 + 30;
-            return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+            const midX = x1 + this.arrowGap;
+            const topY = y2 - this.arrowGap;
+            return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
         }
         
-        // Обычная связь - вниз
-        const x1 = from.x;
-        const y1 = from.y + fromH;
-        const x2 = to.x;
-        const y2 = to.y - toH;
+        // Обычная связь - ВНИЗ с гарантированным вертикальным входом
+        const x1 = fromBottom.x;
+        const y1 = fromBottom.y;
+        const x2 = toTop.x;
+        const y2 = toTop.y;
         
+        // Если на одной линии - просто вертикаль
         if (Math.abs(x1 - x2) < 5) {
             return `M ${x1} ${y1} L ${x2} ${y2}`;
         }
         
-        const midY = (y1 + y2) / 2;
+        // Иначе - с изломом, и обязательно входим сверху
+        const midY = y1 + this.arrowGap;
+        const topY = y2 - this.arrowGap;
+        
         return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
     }
     
-    getOutputY(node) {
-        if (!node) return this.nodeHeight / 2;
-        if (node.type === 'condition') return this.conditionSize;
-        if (node.type === 'loop') return this.hexHeight / 2;
-        if (node.type === 'start' || node.type === 'class_start') return this.nodeHeight / 2;
-        return this.nodeHeight / 2;
+    // Точки выхода/входа для разных типов узлов
+    getBottomPoint(pos, node) {
+        if (!node) return { x: pos.x, y: pos.y + this.nodeHeight / 2 };
+        
+        switch (node.type) {
+            case 'condition':
+                return { x: pos.x, y: pos.y + this.conditionSize };
+            case 'loop':
+                return { x: pos.x, y: pos.y + this.hexHeight / 2 };
+            case 'end':
+                return { x: pos.x, y: pos.y + 15 };
+            default:
+                return { x: pos.x, y: pos.y + this.nodeHeight / 2 };
+        }
     }
     
-    getInputY(node) {
-        if (!node) return this.nodeHeight / 2;
-        if (node.type === 'condition') return this.conditionSize;
-        if (node.type === 'loop') return this.hexHeight / 2;
-        if (node.type === 'end') return 15;
-        return this.nodeHeight / 2;
+    getTopPoint(pos, node) {
+        if (!node) return { x: pos.x, y: pos.y - this.nodeHeight / 2 };
+        
+        switch (node.type) {
+            case 'condition':
+                return { x: pos.x, y: pos.y - this.conditionSize };
+            case 'loop':
+                return { x: pos.x, y: pos.y - this.hexHeight / 2 };
+            case 'end':
+                return { x: pos.x, y: pos.y - 15 };
+            default:
+                return { x: pos.x, y: pos.y - this.nodeHeight / 2 };
+        }
     }
     
-    drawEdgeLabel(from, to, fromNode, edge) {
+    getRightPoint(pos, node) {
+        if (!node) return { x: pos.x + this.nodeWidth / 2, y: pos.y };
+        
+        switch (node.type) {
+            case 'condition':
+                return { x: pos.x + this.conditionSize, y: pos.y };
+            case 'loop':
+                return { x: pos.x + this.hexWidth / 2, y: pos.y };
+            default:
+                return { x: pos.x + this.nodeWidth / 2, y: pos.y };
+        }
+    }
+    
+    getLeftPoint(pos, node) {
+        if (!node) return { x: pos.x - this.nodeWidth / 2, y: pos.y };
+        
+        switch (node.type) {
+            case 'condition':
+                return { x: pos.x - this.conditionSize, y: pos.y };
+            case 'loop':
+                return { x: pos.x - this.hexWidth / 2, y: pos.y };
+            default:
+                return { x: pos.x - this.nodeWidth / 2, y: pos.y };
+        }
+    }
+    
+    drawEdgeLabel(from, to, fromNode, toNode, edge) {
         let x, y;
         
         if (edge.branch === 'yes') {
             x = from.x - 20;
             y = from.y + this.conditionSize + 18;
         } else if (edge.branch === 'no') {
-            x = from.x + this.conditionSize + 5;
+            x = from.x + this.conditionSize + 8;
             y = from.y - 8;
         } else if (edge.branch === 'exception') {
-            x = from.x + this.nodeWidth / 2 + 5;
+            x = from.x + this.nodeWidth / 2 + 8;
             y = from.y - 8;
         } else {
             return;
@@ -650,7 +684,6 @@ class FlowchartRenderer {
         
         if (!text) return textEl;
         
-        // Разбиваем текст
         const words = text.split(' ');
         const lines = [];
         let currentLine = '';
