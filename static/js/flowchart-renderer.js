@@ -10,6 +10,7 @@ class FlowchartRenderer {
         this.container = container;
         this.svg = null;
         this.nodePositions = new Map();
+        this.edgeOffsets = new Map(); // Для отслеживания смещений множественных линий
         
         // Размеры
         this.nodeWidth = 180;
@@ -17,18 +18,49 @@ class FlowchartRenderer {
         this.conditionSize = 45;
         this.hexWidth = 180;
         this.hexHeight = 40;
-        this.verticalGap = 70;  // Увеличен
+        this.verticalGap = 70;
         this.horizontalGap = 130;
         this.padding = 80;
         this.loopLeftOffset = 50;
-        this.arrowGap = 25; // Минимальный отступ для стрелок
+        this.arrowGap = 25;
         
         // Цвета
         this.colors = {
             fill: '#dbeafe',
             stroke: '#2563eb',
-            text: '#1e293b'
+            text: '#1e293b',
+            // Цвета линий по типам
+            lines: {
+                default: '#2563eb',      // синий - обычные связи
+                yes: '#16a34a',           // зелёный - ветка "да"
+                no: '#dc2626',            // красный - ветка "нет"  
+                loop_back: '#9333ea',     // фиолетовый - обратная связь цикла
+                loop_exit: '#f59e0b',     // оранжевый - выход из цикла
+                from_no: '#dc2626',       // красный - продолжение ветки "нет"
+                exception: '#ef4444'      // красный - исключение
+            }
         };
+    }
+    
+    getLineColor(edge) {
+        if (edge.branch === 'yes') return this.colors.lines.yes;
+        if (edge.branch === 'no') return this.colors.lines.no;
+        if (edge.branch === 'loop_back') return this.colors.lines.loop_back;
+        if (edge.branch === 'loop_exit') return this.colors.lines.loop_exit;
+        if (edge.branch === 'from_no') return this.colors.lines.from_no;
+        if (edge.branch === 'exception') return this.colors.lines.exception;
+        return this.colors.lines.default;
+    }
+    
+    // Получить смещение для линии к узлу (чтобы множественные линии не накладывались)
+    getEdgeOffset(toId, branch) {
+        const key = `${toId}-${branch || 'default'}`;
+        if (!this.edgeOffsets.has(key)) {
+            this.edgeOffsets.set(key, 0);
+        }
+        const offset = this.edgeOffsets.get(key);
+        this.edgeOffsets.set(key, offset + 8); // Каждая следующая линия смещена на 8px
+        return offset;
     }
     
     render(flowchartData) {
@@ -39,6 +71,7 @@ class FlowchartRenderer {
         
         this.container.innerHTML = '';
         this.nodePositions.clear();
+        this.edgeOffsets.clear(); // Очищаем смещения
         
         const { nodes, edges } = flowchartData;
         
@@ -452,19 +485,51 @@ class FlowchartRenderer {
         const toNode = nodes.find(n => n.id === edge.to);
         
         const path = this.calculatePath(fromPos, toPos, fromNode, toNode, edge);
+        const lineColor = this.getLineColor(edge);
         
         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         pathEl.setAttribute('d', path);
         pathEl.setAttribute('fill', 'none');
-        pathEl.setAttribute('stroke', this.colors.stroke);
+        pathEl.setAttribute('stroke', lineColor);
         pathEl.setAttribute('stroke-width', '2');
-        pathEl.setAttribute('marker-end', 'url(#arrow)');
+        
+        // Создаём уникальный маркер для каждого цвета
+        const markerId = `arrow-${lineColor.replace('#', '')}`;
+        this.ensureArrowMarker(markerId, lineColor);
+        pathEl.setAttribute('marker-end', `url(#${markerId})`);
         
         this.svg.appendChild(pathEl);
         
         if (edge.label) {
-            this.drawEdgeLabel(fromPos, toPos, fromNode, toNode, edge);
+            this.drawEdgeLabel(fromPos, toPos, fromNode, toNode, edge, lineColor);
         }
+    }
+    
+    ensureArrowMarker(markerId, color) {
+        // Проверяем, существует ли уже такой маркер
+        if (this.svg.querySelector(`#${markerId}`)) return;
+        
+        const defs = this.svg.querySelector('defs') || (() => {
+            const d = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            this.svg.insertBefore(d, this.svg.firstChild);
+            return d;
+        })();
+        
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        marker.setAttribute('id', markerId);
+        marker.setAttribute('viewBox', '0 0 10 10');
+        marker.setAttribute('refX', '9');
+        marker.setAttribute('refY', '5');
+        marker.setAttribute('markerWidth', '6');
+        marker.setAttribute('markerHeight', '6');
+        marker.setAttribute('orient', 'auto-start-reverse');
+        
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+        path.setAttribute('fill', color);
+        
+        marker.appendChild(path);
+        defs.appendChild(marker);
     }
     
     calculatePath(from, to, fromNode, toNode, edge) {
@@ -548,14 +613,16 @@ class FlowchartRenderer {
             const x2 = toTop.x;
             const y2 = toTop.y;
             
+            // Получаем смещение для этой линии
+            const offset = this.getEdgeOffset(edge.to, 'no');
+            
             // Если цель на том же уровне (рядом справа)
             if (Math.abs(from.y - to.y) < 10 && to.x > from.x) {
                 return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y1}`;
             }
             
-            // Вычисляем правую границу для обхода
-            // Нужно обойти все блоки между условием и целевым блоком
-            const rightOffset = this.horizontalGap;
+            // Вычисляем правую границу для обхода с учётом смещения
+            const rightOffset = this.horizontalGap + offset;
             const bypassX = from.x + rightOffset;
             
             // Спускаемся вниз справа, затем к целевому блоку сверху
@@ -571,12 +638,15 @@ class FlowchartRenderer {
             const x2 = toTop.x;
             const y2 = toTop.y;
             
-            // Вычисляем правую границу для обхода
-            const rightOffset = this.horizontalGap;
-            const bypassX = Math.max(from.x + rightOffset, x2 + this.nodeWidth / 2 + this.arrowGap);
+            // Получаем смещение для этой линии
+            const offset = this.getEdgeOffset(edge.to, 'from_no');
+            
+            // Вычисляем правую границу для обхода с учётом смещения
+            const rightOffset = this.horizontalGap + offset;
+            const bypassX = Math.max(from.x + rightOffset, x2 + this.nodeWidth / 2 + this.arrowGap + offset);
             
             // Спускаемся вниз справа, затем к целевому блоку сверху
-            const approachY = y2 - this.arrowGap;
+            const approachY = y2 - this.arrowGap - offset;
             
             return `M ${x1} ${y1} L ${bypassX} ${y1} L ${bypassX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
         }
@@ -668,7 +738,7 @@ class FlowchartRenderer {
         }
     }
     
-    drawEdgeLabel(from, to, fromNode, toNode, edge) {
+    drawEdgeLabel(from, to, fromNode, toNode, edge, lineColor) {
         let x, y;
         
         if (edge.branch === 'yes') {
@@ -689,7 +759,8 @@ class FlowchartRenderer {
         text.setAttribute('y', y);
         text.setAttribute('font-family', 'Arial, sans-serif');
         text.setAttribute('font-size', '12');
-        text.setAttribute('fill', this.colors.text);
+        text.setAttribute('font-weight', 'bold');
+        text.setAttribute('fill', lineColor || this.colors.text);
         text.textContent = edge.label;
         
         this.svg.appendChild(text);

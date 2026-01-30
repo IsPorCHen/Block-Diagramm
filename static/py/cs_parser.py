@@ -1,3 +1,7 @@
+"""
+Парсер C# для генерации блок-схем
+Улучшенная версия с поддержкой свойств, статических членов
+"""
 import re
 
 
@@ -40,221 +44,267 @@ class CSharpFlowchartBuilder:
         return {'nodes': self.nodes, 'edges': self.edges}
 
 
-def tokenize_csharp(code):
-    """Разбить C# код на токены"""
-    tokens = []
+def remove_comments(code):
+    """Удалить комментарии из кода"""
+    result = []
     i = 0
+    while i < len(code):
+        if code[i:i+2] == '//':
+            end = code.find('\n', i)
+            if end == -1:
+                break
+            i = end + 1
+        elif code[i:i+2] == '/*':
+            end = code.find('*/', i)
+            if end == -1:
+                break
+            i = end + 2
+        else:
+            result.append(code[i])
+            i += 1
+    return ''.join(result)
+
+
+def find_matching_brace(code, start):
+    """Найти закрывающую скобку"""
+    depth = 0
+    i = start
+    in_string = False
+    string_char = None
     
     while i < len(code):
-        # Пропуск пробелов
-        if code[i] in ' \t\n\r':
+        c = code[i]
+        
+        # Обработка строк
+        if not in_string and c in '"\'':
+            in_string = True
+            string_char = c
             i += 1
             continue
         
-        # Однострочный комментарий
-        if code[i:i+2] == '//':
-            end = code.find('\n', i)
+        if in_string:
+            if c == '\\' and i + 1 < len(code):
+                i += 2
+                continue
+            if c == string_char:
+                in_string = False
+            i += 1
+            continue
+        
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(code)
+
+
+def find_matching_paren(code, start):
+    """Найти закрывающую круглую скобку"""
+    depth = 0
+    i = start
+    in_string = False
+    string_char = None
+    
+    while i < len(code):
+        c = code[i]
+        
+        if not in_string and c in '"\'':
+            in_string = True
+            string_char = c
+            i += 1
+            continue
+        
+        if in_string:
+            if c == '\\' and i + 1 < len(code):
+                i += 2
+                continue
+            if c == string_char:
+                in_string = False
+            i += 1
+            continue
+        
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(code)
+
+
+def extract_block(code, start):
+    """Извлечь блок кода в фигурных скобках"""
+    brace_start = code.find('{', start)
+    if brace_start == -1:
+        return "", len(code)
+    
+    brace_end = find_matching_brace(code, brace_start)
+    return code[brace_start + 1:brace_end], brace_end + 1
+
+
+def connect_nodes(builder, from_id, to_id, label='', branch=''):
+    """Соединить узлы с учётом маркеров"""
+    if isinstance(from_id, tuple):
+        if from_id[0] == 'no_empty':
+            builder.add_edge(from_id[1], to_id, 'нет', 'no')
+        elif from_id[0] == 'from_no_branch':
+            builder.add_edge(from_id[1], to_id, '', 'from_no')
+        elif from_id[0] == 'loop_exit':
+            builder.add_edge(from_id[1], to_id, '', 'loop_exit')
+    else:
+        builder.add_edge(from_id, to_id, label, branch)
+
+
+def is_keyword(code, pos, keyword):
+    """Проверить, что в позиции pos начинается ключевое слово"""
+    if not code[pos:].startswith(keyword):
+        return False
+    end = pos + len(keyword)
+    if end >= len(code):
+        return True
+    return not code[end].isalnum() and code[end] != '_'
+
+
+def parse_method_body(code, builder, prev_ids):
+    """Парсить тело метода"""
+    code = code.strip()
+    if not code:
+        return prev_ids
+    
+    i = 0
+    while i < len(code):
+        # Пропуск пробелов
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
+        
+        if i >= len(code):
+            break
+        
+        # IF
+        if is_keyword(code, i, 'if'):
+            i, prev_ids = parse_if(code, i, builder, prev_ids)
+            continue
+        
+        # FOR
+        if is_keyword(code, i, 'for'):
+            i, prev_ids = parse_for(code, i, builder, prev_ids)
+            continue
+        
+        # FOREACH
+        if is_keyword(code, i, 'foreach'):
+            i, prev_ids = parse_foreach(code, i, builder, prev_ids)
+            continue
+        
+        # WHILE
+        if is_keyword(code, i, 'while'):
+            i, prev_ids = parse_while(code, i, builder, prev_ids)
+            continue
+        
+        # DO
+        if is_keyword(code, i, 'do'):
+            i, prev_ids = parse_do_while(code, i, builder, prev_ids)
+            continue
+        
+        # SWITCH
+        if is_keyword(code, i, 'switch'):
+            i, prev_ids = parse_switch(code, i, builder, prev_ids)
+            continue
+        
+        # TRY
+        if is_keyword(code, i, 'try'):
+            i, prev_ids = parse_try(code, i, builder, prev_ids)
+            continue
+        
+        # RETURN
+        if is_keyword(code, i, 'return'):
+            i, prev_ids = parse_return(code, i, builder, prev_ids)
+            continue
+        
+        # THROW
+        if is_keyword(code, i, 'throw'):
+            i, prev_ids = parse_throw(code, i, builder, prev_ids)
+            continue
+        
+        # BREAK / CONTINUE
+        if is_keyword(code, i, 'break') or is_keyword(code, i, 'continue'):
+            end = code.find(';', i)
             if end == -1:
                 end = len(code)
             i = end + 1
             continue
         
-        # Многострочный комментарий
-        if code[i:i+2] == '/*':
-            end = code.find('*/', i)
-            if end == -1:
-                end = len(code)
-            else:
-                end += 2
-            i = end
+        # Пропустить закрывающую скобку
+        if code[i] == '}':
+            i += 1
             continue
         
-        # Строки
-        if code[i] == '"':
-            # Verbatim string
-            if i > 0 and code[i-1] == '@':
-                j = i + 1
-                while j < len(code):
-                    if code[j] == '"':
-                        if j + 1 < len(code) and code[j+1] == '"':
-                            j += 2
-                        else:
-                            j += 1
-                            break
-                    else:
-                        j += 1
-                tokens.append(('STRING', code[i:j]))
-                i = j
-                continue
+        # Обычный оператор (до ;)
+        stmt_end = code.find(';', i)
+        if stmt_end == -1:
+            stmt_end = len(code)
+        
+        stmt = code[i:stmt_end].strip()
+        if stmt:
+            # Проверить - это вывод?
+            if 'Console.Write' in stmt or 'MessageBox.Show' in stmt:
+                node_id = builder.add_node('output', stmt)
             else:
-                j = i + 1
-                while j < len(code):
-                    if code[j] == '\\':
-                        j += 2
-                    elif code[j] == '"':
-                        j += 1
-                        break
-                    else:
-                        j += 1
-                tokens.append(('STRING', code[i:j]))
-                i = j
-                continue
-        
-        if code[i] == '\'':
-            j = i + 1
-            while j < len(code):
-                if code[j] == '\\':
-                    j += 2
-                elif code[j] == '\'':
-                    j += 1
-                    break
-                else:
-                    j += 1
-            tokens.append(('CHAR', code[i:j]))
-            i = j
-            continue
-        
-        # Ключевые слова и идентификаторы
-        if code[i].isalpha() or code[i] == '_' or code[i] == '@':
-            j = i
-            if code[i] == '@':
-                j += 1
-            while j < len(code) and (code[j].isalnum() or code[j] == '_'):
-                j += 1
-            word = code[i:j]
-            if word.startswith('@'):
-                word = word[1:]
+                node_id = builder.add_node('process', stmt)
             
-            keywords = ['if', 'else', 'for', 'foreach', 'while', 'do', 'switch',
-                       'case', 'default', 'break', 'continue', 'return', 'var',
-                       'class', 'struct', 'interface', 'enum', 'namespace',
-                       'public', 'private', 'protected', 'internal', 'static',
-                       'void', 'int', 'string', 'bool', 'float', 'double',
-                       'try', 'catch', 'finally', 'throw', 'new', 'this',
-                       'async', 'await', 'using', 'in', 'out', 'ref',
-                       'Console', 'get', 'set', 'virtual', 'override', 'abstract']
-            
-            if word in keywords:
-                tokens.append((word.upper(), word))
-            else:
-                tokens.append(('IDENT', word))
-            i = j
-            continue
+            for pid in prev_ids:
+                if pid is not None:
+                    connect_nodes(builder, pid, node_id)
+            prev_ids = [node_id]
         
-        # Числа
-        if code[i].isdigit():
-            j = i
-            while j < len(code) and (code[j].isdigit() or code[j] in '.fFdDmMlL'):
-                j += 1
-            tokens.append(('NUMBER', code[i:j]))
-            i = j
-            continue
-        
-        # Операторы
-        three_char = code[i:i+3]
-        if three_char in ['<<=', '>>=']:
-            tokens.append(('OP', three_char))
-            i += 3
-            continue
-        
-        two_char = code[i:i+2]
-        if two_char in ['==', '!=', '<=', '>=', '&&', '||', '++', '--', '+=', '-=', 
-                        '*=', '/=', '%=', '=>', '??', '?.', '<<', '>>', '::']:
-            tokens.append(('OP', two_char))
-            i += 2
-            continue
-        
-        tokens.append((code[i], code[i]))
+        i = stmt_end + 1
+    
+    return prev_ids
+
+
+def parse_if(code, start, builder, prev_ids):
+    """Парсить if/else if/else"""
+    i = start + 2
+    
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
     
-    return tokens
-
-
-def parse_cs_block(tokens, start, builder, prev_ids):
-    """Парсить блок кода в фигурных скобках"""
-    i = start
+    if i < len(code) and code[i] == '(':
+        paren_end = find_matching_paren(code, i)
+        condition = code[i + 1:paren_end].strip()
+        i = paren_end + 1
+    else:
+        condition = "?"
     
-    # Найти {
-    while i < len(tokens) and tokens[i][0] != '{':
-        i += 1
-    
-    if i >= len(tokens):
-        return start, prev_ids
-    
-    i += 1
-    depth = 1
-    
-    while i < len(tokens) and depth > 0:
-        token = tokens[i]
-        
-        if token[0] == '{':
-            depth += 1
-            i += 1
-        elif token[0] == '}':
-            depth -= 1
-            i += 1
-        elif token[0] == 'IF':
-            i, prev_ids = parse_cs_if(tokens, i, builder, prev_ids)
-        elif token[0] == 'FOR':
-            i, prev_ids = parse_cs_for(tokens, i, builder, prev_ids)
-        elif token[0] == 'FOREACH':
-            i, prev_ids = parse_cs_foreach(tokens, i, builder, prev_ids)
-        elif token[0] == 'WHILE':
-            i, prev_ids = parse_cs_while(tokens, i, builder, prev_ids)
-        elif token[0] == 'DO':
-            i, prev_ids = parse_cs_do_while(tokens, i, builder, prev_ids)
-        elif token[0] == 'SWITCH':
-            i, prev_ids = parse_cs_switch(tokens, i, builder, prev_ids)
-        elif token[0] == 'TRY':
-            i, prev_ids = parse_cs_try(tokens, i, builder, prev_ids)
-        elif token[0] == 'RETURN':
-            i, prev_ids = parse_cs_return(tokens, i, builder, prev_ids)
-        elif token[0] == 'CONSOLE':
-            i, prev_ids = parse_cs_console(tokens, i, builder, prev_ids)
-        elif token[0] == 'VAR' or token[0] in ['INT', 'STRING', 'BOOL', 'FLOAT', 'DOUBLE']:
-            i, prev_ids = parse_cs_var(tokens, i, builder, prev_ids)
-        elif token[0] == 'IDENT':
-            i, prev_ids = parse_cs_statement(tokens, i, builder, prev_ids)
-        else:
-            i += 1
-    
-    return i, prev_ids
-
-
-def parse_cs_if(tokens, start, builder, prev_ids):
-    """Парсить if/else"""
-    i = start + 1
-    
-    # Условие
-    condition = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
-        i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                condition += tokens[i][1] + " "
-            i += 1
-    
-    condition = condition.strip() + "?"
-    cond_id = builder.add_node('condition', condition)
+    cond_id = builder.add_node('condition', condition + '?')
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], cond_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], cond_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, cond_id)
+            connect_nodes(builder, pid, cond_id)
     
-    # Ветка "да"
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
+    
     edge_idx = len(builder.edges)
-    i, yes_ids = parse_cs_block(tokens, i, builder, [cond_id])
+    
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        yes_ids = parse_method_body(body, builder, [cond_id])
+    else:
+        stmt_end = code.find(';', i)
+        if stmt_end == -1:
+            stmt_end = len(code)
+        stmt = code[i:stmt_end].strip()
+        if stmt:
+            node_id = builder.add_node('process', stmt)
+            builder.add_edge(cond_id, node_id)
+            yes_ids = [node_id]
+        else:
+            yes_ids = [cond_id]
+        i = stmt_end + 1
     
     for j in range(edge_idx, len(builder.edges)):
         if builder.edges[j]['from'] == cond_id and not builder.edges[j]['label']:
@@ -264,15 +314,33 @@ def parse_cs_if(tokens, start, builder, prev_ids):
     
     exit_ids = list(yes_ids) if yes_ids else []
     
-    # else
-    if i < len(tokens) and tokens[i][0] == 'ELSE':
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
+    
+    if is_keyword(code, i, 'else'):
+        i += 4
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
+        
         edge_idx = len(builder.edges)
         
-        if i < len(tokens) and tokens[i][0] == 'IF':
-            i, no_ids = parse_cs_if(tokens, i, builder, [cond_id])
+        if is_keyword(code, i, 'if'):
+            i, no_ids = parse_if(code, i, builder, [cond_id])
+        elif i < len(code) and code[i] == '{':
+            body, i = extract_block(code, i)
+            no_ids = parse_method_body(body, builder, [cond_id])
         else:
-            i, no_ids = parse_cs_block(tokens, i, builder, [cond_id])
+            stmt_end = code.find(';', i)
+            if stmt_end == -1:
+                stmt_end = len(code)
+            stmt = code[i:stmt_end].strip()
+            if stmt:
+                node_id = builder.add_node('process', stmt)
+                builder.add_edge(cond_id, node_id)
+                no_ids = [node_id]
+            else:
+                no_ids = [cond_id]
+            i = stmt_end + 1
         
         for j in range(edge_idx, len(builder.edges)):
             if builder.edges[j]['from'] == cond_id and not builder.edges[j]['label']:
@@ -282,43 +350,48 @@ def parse_cs_if(tokens, start, builder, prev_ids):
         
         for nid in no_ids:
             if nid is not None:
-                exit_ids.append(('from_no_branch', nid))
+                if not isinstance(nid, tuple):
+                    exit_ids.append(('from_no_branch', nid))
+                else:
+                    exit_ids.append(nid)
     else:
         exit_ids.append(('no_empty', cond_id))
     
     return i, exit_ids if exit_ids else [None]
 
 
-def parse_cs_for(tokens, start, builder, prev_ids):
+def parse_for(code, start, builder, prev_ids):
     """Парсить for"""
-    i = start + 1
+    i = start + 3
     
-    header = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                header += tokens[i][1] + " "
-            i += 1
     
-    loop_id = builder.add_node('loop', f'for ({header.strip()})')
+    if i < len(code) and code[i] == '(':
+        paren_end = find_matching_paren(code, i)
+        header = code[i + 1:paren_end].strip()
+        i = paren_end + 1
+    else:
+        header = "..."
+    
+    loop_id = builder.add_node('loop', f'for ({header})')
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], loop_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], loop_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, loop_id)
+            connect_nodes(builder, pid, loop_id)
     
-    i, body_ids = parse_cs_block(tokens, i, builder, [loop_id])
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
+    
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        body_ids = parse_method_body(body, builder, [loop_id])
+    else:
+        stmt_end = code.find(';', i)
+        if stmt_end == -1:
+            stmt_end = len(code)
+        i = stmt_end + 1
+        body_ids = []
     
     for bid in body_ids:
         if bid is not None and not isinstance(bid, tuple):
@@ -327,36 +400,38 @@ def parse_cs_for(tokens, start, builder, prev_ids):
     return i, [('loop_exit', loop_id)]
 
 
-def parse_cs_foreach(tokens, start, builder, prev_ids):
+def parse_foreach(code, start, builder, prev_ids):
     """Парсить foreach"""
-    i = start + 1
+    i = start + 7
     
-    header = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                header += tokens[i][1] + " "
-            i += 1
     
-    loop_id = builder.add_node('loop', f'foreach ({header.strip()})')
+    if i < len(code) and code[i] == '(':
+        paren_end = find_matching_paren(code, i)
+        header = code[i + 1:paren_end].strip()
+        i = paren_end + 1
+    else:
+        header = "..."
+    
+    loop_id = builder.add_node('loop', f'foreach ({header})')
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], loop_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], loop_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, loop_id)
+            connect_nodes(builder, pid, loop_id)
     
-    i, body_ids = parse_cs_block(tokens, i, builder, [loop_id])
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
+    
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        body_ids = parse_method_body(body, builder, [loop_id])
+    else:
+        stmt_end = code.find(';', i)
+        if stmt_end == -1:
+            stmt_end = len(code)
+        i = stmt_end + 1
+        body_ids = []
     
     for bid in body_ids:
         if bid is not None and not isinstance(bid, tuple):
@@ -365,36 +440,38 @@ def parse_cs_foreach(tokens, start, builder, prev_ids):
     return i, [('loop_exit', loop_id)]
 
 
-def parse_cs_while(tokens, start, builder, prev_ids):
+def parse_while(code, start, builder, prev_ids):
     """Парсить while"""
-    i = start + 1
+    i = start + 5
     
-    condition = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                condition += tokens[i][1] + " "
-            i += 1
     
-    loop_id = builder.add_node('loop', f'while ({condition.strip()})')
+    if i < len(code) and code[i] == '(':
+        paren_end = find_matching_paren(code, i)
+        condition = code[i + 1:paren_end].strip()
+        i = paren_end + 1
+    else:
+        condition = "?"
+    
+    loop_id = builder.add_node('loop', f'while ({condition})')
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], loop_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], loop_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, loop_id)
+            connect_nodes(builder, pid, loop_id)
     
-    i, body_ids = parse_cs_block(tokens, i, builder, [loop_id])
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
+    
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        body_ids = parse_method_body(body, builder, [loop_id])
+    else:
+        stmt_end = code.find(';', i)
+        if stmt_end == -1:
+            stmt_end = len(code)
+        i = stmt_end + 1
+        body_ids = []
     
     for bid in body_ids:
         if bid is not None and not isinstance(bid, tuple):
@@ -403,533 +480,494 @@ def parse_cs_while(tokens, start, builder, prev_ids):
     return i, [('loop_exit', loop_id)]
 
 
-def parse_cs_do_while(tokens, start, builder, prev_ids):
+def parse_do_while(code, start, builder, prev_ids):
     """Парсить do-while"""
-    i = start + 1
+    i = start + 2
+    
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
     
     do_id = builder.add_node('process', 'do')
     
     for pid in prev_ids:
         if pid is not None:
-            builder.add_edge(pid, do_id)
+            connect_nodes(builder, pid, do_id)
     
-    i, body_ids = parse_cs_block(tokens, i, builder, [do_id])
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        body_ids = parse_method_body(body, builder, [do_id])
+    else:
+        body_ids = [do_id]
     
-    if i < len(tokens) and tokens[i][0] == 'WHILE':
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
-        condition = ""
-        if i < len(tokens) and tokens[i][0] == '(':
-            depth = 1
+    
+    if is_keyword(code, i, 'while'):
+        i += 5
+        while i < len(code) and code[i] in ' \t\n\r':
             i += 1
-            while i < len(tokens) and depth > 0:
-                if tokens[i][0] == '(':
-                    depth += 1
-                elif tokens[i][0] == ')':
-                    depth -= 1
-                if depth > 0:
-                    condition += tokens[i][1] + " "
-                i += 1
         
-        loop_id = builder.add_node('condition', condition.strip() + "?")
+        if i < len(code) and code[i] == '(':
+            paren_end = find_matching_paren(code, i)
+            condition = code[i + 1:paren_end].strip()
+            i = paren_end + 1
+        else:
+            condition = "?"
+        
+        cond_id = builder.add_node('condition', condition + '?')
         
         for bid in body_ids:
             if bid is not None and not isinstance(bid, tuple):
-                builder.add_edge(bid, loop_id)
+                builder.add_edge(bid, cond_id)
         
-        builder.add_edge(loop_id, do_id, 'да', 'yes')
+        builder.add_edge(cond_id, do_id, 'да', 'yes')
         
-        if i < len(tokens) and tokens[i][0] == ';':
+        while i < len(code) and code[i] in ' \t\n\r;':
             i += 1
         
-        return i, [('no_empty', loop_id)]
+        return i, [('no_empty', cond_id)]
     
     return i, body_ids
 
 
-def parse_cs_switch(tokens, start, builder, prev_ids):
+def parse_switch(code, start, builder, prev_ids):
     """Парсить switch"""
-    i = start + 1
+    i = start + 6
     
-    expr = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                expr += tokens[i][1] + " "
-            i += 1
     
-    switch_id = builder.add_node('condition', f'switch ({expr.strip()})')
+    if i < len(code) and code[i] == '(':
+        paren_end = find_matching_paren(code, i)
+        expr = code[i + 1:paren_end].strip()
+        i = paren_end + 1
+    else:
+        expr = "?"
+    
+    switch_id = builder.add_node('condition', f'switch ({expr})')
     
     for pid in prev_ids:
         if pid is not None:
-            builder.add_edge(pid, switch_id)
+            connect_nodes(builder, pid, switch_id)
+    
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
     
     exit_ids = []
     
-    if i < len(tokens) and tokens[i][0] == '{':
-        i += 1
-        depth = 1
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
         
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '{':
-                depth += 1
-                i += 1
-            elif tokens[i][0] == '}':
-                depth -= 1
-                i += 1
-            elif tokens[i][0] == 'CASE':
-                i += 1
-                case_val = ""
-                while i < len(tokens) and tokens[i][0] != ':':
-                    case_val += tokens[i][1] + " "
-                    i += 1
-                i += 1
-                
-                case_id = builder.add_node('process', f'case {case_val.strip()}')
-                builder.add_edge(switch_id, case_id, case_val.strip(), 'yes')
-                exit_ids.append(case_id)
-            elif tokens[i][0] == 'DEFAULT':
-                i += 1
-                if i < len(tokens) and tokens[i][0] == ':':
-                    i += 1
-                default_id = builder.add_node('process', 'default')
-                builder.add_edge(switch_id, default_id, 'default', 'no')
-                exit_ids.append(default_id)
-            elif tokens[i][0] == 'BREAK':
-                i += 1
-                if i < len(tokens) and tokens[i][0] == ';':
-                    i += 1
-            else:
-                i += 1
+        cases = re.findall(r'case\s+([^:]+):', body)
+        has_default = 'default:' in body
+        
+        for case_val in cases:
+            case_id = builder.add_node('process', f'case {case_val.strip()}')
+            builder.add_edge(switch_id, case_id, case_val.strip(), 'yes')
+            exit_ids.append(case_id)
+        
+        if has_default:
+            default_id = builder.add_node('process', 'default')
+            builder.add_edge(switch_id, default_id, 'default', 'no')
+            exit_ids.append(default_id)
     
     return i, exit_ids if exit_ids else [switch_id]
 
 
-def parse_cs_try(tokens, start, builder, prev_ids):
+def parse_try(code, start, builder, prev_ids):
     """Парсить try-catch-finally"""
-    i = start + 1
+    i = start + 3
+    
+    while i < len(code) and code[i] in ' \t\n\r':
+        i += 1
     
     try_id = builder.add_node('process', 'try')
     
     for pid in prev_ids:
         if pid is not None:
-            builder.add_edge(pid, try_id)
+            connect_nodes(builder, pid, try_id)
     
-    i, try_ids = parse_cs_block(tokens, i, builder, [try_id])
+    if i < len(code) and code[i] == '{':
+        body, i = extract_block(code, i)
+        try_ids = parse_method_body(body, builder, [try_id])
+    else:
+        try_ids = [try_id]
+    
     exit_ids = list(try_ids)
     
-    while i < len(tokens) and tokens[i][0] == 'CATCH':
-        i += 1
+    while True:
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
+        
+        if not is_keyword(code, i, 'catch'):
+            break
+        
+        i += 5
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
         
         exception = ""
-        if i < len(tokens) and tokens[i][0] == '(':
-            depth = 1
-            i += 1
-            while i < len(tokens) and depth > 0:
-                if tokens[i][0] == '(':
-                    depth += 1
-                elif tokens[i][0] == ')':
-                    depth -= 1
-                if depth > 0:
-                    exception += tokens[i][1] + " "
-                i += 1
+        if i < len(code) and code[i] == '(':
+            paren_end = find_matching_paren(code, i)
+            exception = code[i + 1:paren_end].strip()
+            i = paren_end + 1
         
-        catch_text = f'catch ({exception.strip()})' if exception.strip() else 'catch'
+        catch_text = f'catch ({exception})' if exception else 'catch'
         catch_id = builder.add_node('process', catch_text)
         builder.add_edge(try_id, catch_id, 'ошибка', 'no')
         
-        i, catch_ids = parse_cs_block(tokens, i, builder, [catch_id])
-        exit_ids.extend(catch_ids)
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
+        
+        if i < len(code) and code[i] == '{':
+            body, i = extract_block(code, i)
+            catch_ids = parse_method_body(body, builder, [catch_id])
+            exit_ids.extend(catch_ids)
+        else:
+            exit_ids.append(catch_id)
     
-    if i < len(tokens) and tokens[i][0] == 'FINALLY':
+    while i < len(code) and code[i] in ' \t\n\r':
         i += 1
+    
+    if is_keyword(code, i, 'finally'):
+        i += 7
+        while i < len(code) and code[i] in ' \t\n\r':
+            i += 1
+        
         finally_id = builder.add_node('process', 'finally')
         
         for eid in exit_ids:
             if eid is not None and not isinstance(eid, tuple):
                 builder.add_edge(eid, finally_id)
         
-        i, finally_ids = parse_cs_block(tokens, i, builder, [finally_id])
-        exit_ids = finally_ids
+        if i < len(code) and code[i] == '{':
+            body, i = extract_block(code, i)
+            finally_ids = parse_method_body(body, builder, [finally_id])
+            exit_ids = finally_ids
+        else:
+            exit_ids = [finally_id]
     
     return i, exit_ids
 
 
-def parse_cs_return(tokens, start, builder, prev_ids):
+def parse_return(code, start, builder, prev_ids):
     """Парсить return"""
-    i = start + 1
+    i = start + 6
     
-    value = ""
-    while i < len(tokens) and tokens[i][0] != ';':
-        value += tokens[i][1] + " "
-        i += 1
+    stmt_end = code.find(';', i)
+    if stmt_end == -1:
+        stmt_end = len(code)
     
-    if i < len(tokens) and tokens[i][0] == ';':
-        i += 1
+    value = code[i:stmt_end].strip()
+    text = f'return {value}' if value else 'return'
     
-    text = f'return {value.strip()}' if value.strip() else 'return'
-    ret_id = builder.add_node('process', text)
+    ret_id = builder.add_node('output', text)  # output вместо process
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], ret_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], ret_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, ret_id)
+            connect_nodes(builder, pid, ret_id)
     
-    return i, [ret_id]
+    return stmt_end + 1, [ret_id]
 
 
-def parse_cs_console(tokens, start, builder, prev_ids):
-    """Парсить Console.WriteLine"""
-    i = start + 1
+def parse_throw(code, start, builder, prev_ids):
+    """Парсить throw"""
+    i = start + 5
     
-    # .WriteLine или .Write
-    if i < len(tokens) and tokens[i][0] == '.':
-        i += 1
-    method = ""
-    if i < len(tokens) and tokens[i][0] == 'IDENT':
-        method = tokens[i][1]
-        i += 1
+    stmt_end = code.find(';', i)
+    if stmt_end == -1:
+        stmt_end = len(code)
     
-    args = ""
-    if i < len(tokens) and tokens[i][0] == '(':
-        depth = 1
-        i += 1
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '(':
-                depth += 1
-            elif tokens[i][0] == ')':
-                depth -= 1
-            if depth > 0:
-                args += tokens[i][1] + " "
-            i += 1
+    value = code[i:stmt_end].strip()
+    text = f'throw {value}' if value else 'throw'
     
-    if i < len(tokens) and tokens[i][0] == ';':
-        i += 1
-    
-    out_id = builder.add_node('output', f'Console.{method}({args.strip()})')
+    throw_id = builder.add_node('process', text)
     
     for pid in prev_ids:
         if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], out_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], out_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, out_id)
+            connect_nodes(builder, pid, throw_id)
     
-    return i, [out_id]
+    return stmt_end + 1, [throw_id]
 
 
-def parse_cs_var(tokens, start, builder, prev_ids):
-    """Парсить объявление переменной"""
-    i = start
-    
-    statement = ""
-    while i < len(tokens) and tokens[i][0] != ';':
-        statement += tokens[i][1] + " "
-        i += 1
-    
-    if i < len(tokens) and tokens[i][0] == ';':
-        i += 1
-    
-    proc_id = builder.add_node('process', statement.strip())
-    
-    for pid in prev_ids:
-        if pid is not None:
-            if isinstance(pid, tuple):
-                if pid[0] == 'no_empty':
-                    builder.add_edge(pid[1], proc_id, 'нет', 'no')
-                elif pid[0] == 'from_no_branch':
-                    builder.add_edge(pid[1], proc_id, '', 'from_no')
-            else:
-                builder.add_edge(pid, proc_id)
-    
-    return i, [proc_id]
-
-
-def parse_cs_statement(tokens, start, builder, prev_ids):
-    """Парсить обычный оператор"""
-    i = start
-    
-    statement = ""
-    while i < len(tokens) and tokens[i][0] != ';' and tokens[i][0] != '{':
-        statement += tokens[i][1] + " "
-        i += 1
-    
-    if i < len(tokens) and tokens[i][0] == ';':
-        i += 1
-    
-    if statement.strip():
-        proc_id = builder.add_node('process', statement.strip())
-        
-        for pid in prev_ids:
-            if pid is not None:
-                if isinstance(pid, tuple):
-                    if pid[0] == 'no_empty':
-                        builder.add_edge(pid[1], proc_id, 'нет', 'no')
-                    elif pid[0] == 'from_no_branch':
-                        builder.add_edge(pid[1], proc_id, '', 'from_no')
-                else:
-                    builder.add_edge(pid, proc_id)
-        
-        return i, [proc_id]
-    
-    return i, prev_ids
-
-
-def parse_cs_method(tokens, start, class_name=""):
-    """Парсить метод"""
-    i = start
-    
-    # Модификаторы
-    modifiers = []
-    while i < len(tokens) and tokens[i][0] in ['PUBLIC', 'PRIVATE', 'PROTECTED', 
-                                                 'INTERNAL', 'STATIC', 'ASYNC',
-                                                 'VIRTUAL', 'OVERRIDE', 'ABSTRACT']:
-        modifiers.append(tokens[i][1])
-        i += 1
-    
-    # Тип возврата
-    return_type = ""
-    if i < len(tokens) and tokens[i][0] in ['VOID', 'INT', 'STRING', 'BOOL', 
-                                             'FLOAT', 'DOUBLE', 'IDENT']:
-        return_type = tokens[i][1]
-        i += 1
-        # Generic types
-        if i < len(tokens) and tokens[i][0] == '<':
-            return_type += '<'
-            i += 1
-            while i < len(tokens) and tokens[i][0] != '>':
-                return_type += tokens[i][1]
-                i += 1
-            if i < len(tokens):
-                return_type += '>'
-                i += 1
-    
-    # Имя метода
-    name = ""
-    if i < len(tokens) and tokens[i][0] == 'IDENT':
-        name = tokens[i][1]
-        i += 1
-    
-    # Параметры
-    params = []
-    if i < len(tokens) and tokens[i][0] == '(':
-        i += 1
-        while i < len(tokens) and tokens[i][0] != ')':
-            if tokens[i][0] in ['INT', 'STRING', 'BOOL', 'FLOAT', 'DOUBLE', 'IDENT', 'VAR']:
-                param_type = tokens[i][1]
-                i += 1
-                if i < len(tokens) and tokens[i][0] == 'IDENT':
-                    param_name = tokens[i][1]
-                    params.append(f'{param_type} {param_name}')
-                    i += 1
-            elif tokens[i][0] == ',':
-                i += 1
-            else:
-                i += 1
-        i += 1  # )
-    
+def parse_method(name, params, body, class_name=""):
+    """Парсить метод и построить блок-схему"""
     builder = CSharpFlowchartBuilder()
+    
     display_name = f'{class_name}.{name}' if class_name else name
     start_id = builder.add_node('start', f'начало {display_name}()')
     
     prev_ids = [start_id]
     
     if params:
-        param_id = builder.add_node('input', f'Параметры: {", ".join(params)}')
+        param_id = builder.add_node('input', f'Параметры: {params}')
         builder.add_edge(start_id, param_id)
         prev_ids = [param_id]
     
-    # Тело метода
-    i, last_ids = parse_cs_block(tokens, i, builder, prev_ids)
+    last_ids = parse_method_body(body, builder, prev_ids)
     
     end_id = builder.add_node('end', '')
     for lid in last_ids:
         if lid is None:
             continue
-        if isinstance(lid, tuple):
-            if lid[0] == 'no_empty':
-                builder.add_edge(lid[1], end_id, 'нет', 'no')
-            elif lid[0] == 'from_no_branch':
-                builder.add_edge(lid[1], end_id, '', 'from_no')
-            elif lid[0] == 'loop_exit':
-                builder.add_edge(lid[1], end_id, '', 'loop_exit')
-        else:
-            builder.add_edge(lid, end_id)
+        connect_nodes(builder, lid, end_id)
     
-    return i, name, builder.get_flowchart_data()
+    return builder.get_flowchart_data()
 
 
-def parse_cs_class(tokens, start):
-    """Парсить класс"""
-    i = start
-    
-    # Модификаторы
-    while i < len(tokens) and tokens[i][0] in ['PUBLIC', 'PRIVATE', 'PROTECTED', 
-                                                 'INTERNAL', 'STATIC', 'ABSTRACT']:
-        i += 1
-    
-    if i < len(tokens) and tokens[i][0] == 'CLASS':
-        i += 1
-    
-    # Имя класса
-    name = ""
-    if i < len(tokens) and tokens[i][0] == 'IDENT':
-        name = tokens[i][1]
-        i += 1
-    
-    # Наследование
-    if i < len(tokens) and tokens[i][0] == ':':
-        i += 1
-        while i < len(tokens) and tokens[i][0] not in ['{']:
-            i += 1
-    
+def parse_property_accessor(name, accessor_type, body, class_name=""):
+    """Парсить get/set аксессор свойства"""
     builder = CSharpFlowchartBuilder()
-    class_id = builder.add_node('class_start', name)
     
+    display_name = f'{class_name}.{name}.{accessor_type}'
+    start_id = builder.add_node('start', f'начало {display_name}')
+    
+    prev_ids = [start_id]
+    
+    if accessor_type == 'set':
+        param_id = builder.add_node('input', 'value')
+        builder.add_edge(start_id, param_id)
+        prev_ids = [param_id]
+    
+    last_ids = parse_method_body(body, builder, prev_ids)
+    
+    end_id = builder.add_node('end', '')
+    for lid in last_ids:
+        if lid is None:
+            continue
+        connect_nodes(builder, lid, end_id)
+    
+    return builder.get_flowchart_data()
+
+
+def extract_class_members(class_body):
+    """Извлечь члены класса"""
     fields = []
+    properties = []
     methods = []
-    method_flowcharts = []
     
-    # Тело класса
-    if i < len(tokens) and tokens[i][0] == '{':
-        i += 1
-        depth = 1
+    body = class_body.strip()
+    i = 0
+    
+    while i < len(body):
+        while i < len(body) and body[i] in ' \t\n\r':
+            i += 1
         
-        while i < len(tokens) and depth > 0:
-            if tokens[i][0] == '{':
-                depth += 1
+        if i >= len(body):
+            break
+        
+        # Пропустить атрибуты [...]
+        if body[i] == '[':
+            depth = 1
+            i += 1
+            while i < len(body) and depth > 0:
+                if body[i] == '[':
+                    depth += 1
+                elif body[i] == ']':
+                    depth -= 1
                 i += 1
-            elif tokens[i][0] == '}':
-                depth -= 1
+            continue
+        
+        # Найти конец объявления
+        line_start = i
+        
+        # Собрать модификаторы и тип
+        decl_parts = []
+        while i < len(body):
+            while i < len(body) and body[i] in ' \t\n\r':
                 i += 1
-            elif tokens[i][0] in ['PUBLIC', 'PRIVATE', 'PROTECTED', 'INTERNAL', 
-                                   'STATIC', 'ASYNC', 'VIRTUAL', 'OVERRIDE']:
-                # Проверить - это метод или поле?
-                j = i
-                while j < len(tokens) and tokens[j][0] in ['PUBLIC', 'PRIVATE', 
-                      'PROTECTED', 'INTERNAL', 'STATIC', 'ASYNC', 'VIRTUAL', 'OVERRIDE']:
-                    j += 1
-                
-                # Тип
-                if j < len(tokens) and tokens[j][0] in ['VOID', 'INT', 'STRING', 
-                                                         'BOOL', 'FLOAT', 'DOUBLE', 'IDENT']:
-                    j += 1
-                    # Generic
-                    if j < len(tokens) and tokens[j][0] == '<':
-                        while j < len(tokens) and tokens[j][0] != '>':
-                            j += 1
-                        j += 1
-                    
-                    # Имя
-                    if j < len(tokens) and tokens[j][0] == 'IDENT':
-                        member_name = tokens[j][1]
-                        j += 1
-                        
-                        if j < len(tokens) and tokens[j][0] == '(':
-                            # Это метод
-                            end_i, m_name, flowchart = parse_cs_method(tokens, i, name)
-                            methods.append(m_name)
-                            method_flowcharts.append({
-                                'name': f'{name}.{m_name}',
-                                'type': 'method',
-                                'flowchart': flowchart
-                            })
-                            i = end_i
-                        else:
-                            # Это поле
-                            fields.append(member_name)
-                            while i < len(tokens) and tokens[i][0] != ';':
-                                i += 1
+            
+            if i >= len(body):
+                break
+            
+            # Читаем слово
+            if body[i].isalpha() or body[i] == '_':
+                word_start = i
+                while i < len(body) and (body[i].isalnum() or body[i] in '_<>[],.'):
+                    if body[i] == '<':
+                        # Generic
+                        depth = 1
+                        i += 1
+                        while i < len(body) and depth > 0:
+                            if body[i] == '<':
+                                depth += 1
+                            elif body[i] == '>':
+                                depth -= 1
                             i += 1
                     else:
                         i += 1
-                else:
+                word = body[word_start:i]
+                decl_parts.append(word)
+            elif body[i] == '(':
+                # Это метод
+                paren_end = find_matching_paren(body, i)
+                params = body[i + 1:paren_end].strip()
+                i = paren_end + 1
+                
+                while i < len(body) and body[i] in ' \t\n\r':
                     i += 1
+                
+                if i < len(body) and body[i] == '{':
+                    method_body, i = extract_block(body, i)
+                    method_name = decl_parts[-1] if decl_parts else "unknown"
+                    methods.append({
+                        'name': method_name,
+                        'params': params,
+                        'body': method_body
+                    })
+                break
+            elif body[i] == '{':
+                # Это свойство или инициализатор
+                prop_body, end_i = extract_block(body, i)
+                
+                if 'get' in prop_body or 'set' in prop_body:
+                    # Свойство
+                    prop_name = decl_parts[-1] if decl_parts else "unknown"
+                    
+                    # Найти get
+                    get_match = re.search(r'\bget\s*\{', prop_body)
+                    if get_match:
+                        get_start = get_match.end() - 1
+                        get_body, _ = extract_block(prop_body, get_start)
+                        properties.append({
+                            'name': prop_name,
+                            'accessor': 'get',
+                            'body': get_body
+                        })
+                    
+                    # Найти set
+                    set_match = re.search(r'\bset\s*\{', prop_body)
+                    if set_match:
+                        set_start = set_match.end() - 1
+                        set_body, _ = extract_block(prop_body, set_start)
+                        properties.append({
+                            'name': prop_name,
+                            'accessor': 'set',
+                            'body': set_body
+                        })
+                
+                i = end_i
+                break
+            elif body[i] == '=' or body[i] == ';':
+                # Поле
+                if decl_parts:
+                    field_name = decl_parts[-1]
+                    if field_name not in ['public', 'private', 'protected', 'internal', 
+                                          'static', 'readonly', 'const', 'volatile']:
+                        fields.append(field_name)
+                
+                # Пропустить до ;
+                while i < len(body) and body[i] != ';':
+                    i += 1
+                i += 1
+                break
             else:
                 i += 1
+                break
     
-    # Добавить поля
+    return fields, properties, methods
+
+
+def parse_class(code, start):
+    """Парсить класс"""
+    match = re.search(r'class\s+(\w+)', code[start:])
+    if not match:
+        return start, None, None, []
+    
+    class_name = match.group(1)
+    
+    brace_start = code.find('{', start + match.end())
+    if brace_start == -1:
+        return start, None, None, []
+    
+    class_body, end_pos = extract_block(code, brace_start)
+    
+    fields, properties, methods = extract_class_members(class_body)
+    
+    builder = CSharpFlowchartBuilder()
+    class_id = builder.add_node('class_start', class_name)
+    
+    last_id = class_id
+    
     if fields:
         fields_id = builder.add_node('input', f'Поля: {", ".join(fields)}')
-        builder.add_edge(class_id, fields_id)
-        source_id = fields_id
-    else:
-        source_id = class_id
+        builder.add_edge(last_id, fields_id)
+        last_id = fields_id
     
-    # Добавить методы
-    if methods:
-        methods_id = builder.add_node('process', f'Методы: {", ".join(methods)}')
-        builder.add_edge(source_id, methods_id)
+    prop_names = list(set(p['name'] for p in properties))
+    if prop_names:
+        props_id = builder.add_node('process', f'Свойства: {", ".join(prop_names)}')
+        builder.add_edge(last_id, props_id)
+        last_id = props_id
     
-    return i, name, builder.get_flowchart_data(), method_flowcharts
+    # Методы веером от последнего блока
+    method_names = [m['name'] for m in methods]
+    for i, method_name in enumerate(method_names):
+        method_id = builder.add_node('method', method_name + '()')
+        builder.add_edge(last_id, method_id, '', f'fan_{i}')
+    
+    method_flowcharts = []
+    
+    for method in methods:
+        flowchart = parse_method(method['name'], method['params'], method['body'], class_name)
+        method_flowcharts.append({
+            'name': f'{class_name}.{method["name"]}',
+            'type': 'method',
+            'flowchart': flowchart
+        })
+    
+    for prop in properties:
+        flowchart = parse_property_accessor(prop['name'], prop['accessor'], prop['body'], class_name)
+        method_flowcharts.append({
+            'name': f'{class_name}.{prop["name"]}.{prop["accessor"]}',
+            'type': 'property',
+            'flowchart': flowchart
+        })
+    
+    return end_pos, class_name, builder.get_flowchart_data(), method_flowcharts
 
 
 def parse_csharp(code):
     """Главная функция парсинга C#"""
-    tokens = tokenize_csharp(code)
+    code = remove_comments(code)
     
     functions = []
     classes = []
     
     i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        
-        # Пропустить using и namespace
-        if token[0] == 'USING':
-            while i < len(tokens) and tokens[i][0] != ';':
-                i += 1
+    while i < len(code):
+        while i < len(code) and code[i] in ' \t\n\r':
             i += 1
+        
+        if i >= len(code):
+            break
+        
+        if code[i:].startswith('using '):
+            semi = code.find(';', i)
+            if semi != -1:
+                i = semi + 1
             continue
         
-        if token[0] == 'NAMESPACE':
-            i += 1
-            while i < len(tokens) and tokens[i][0] != '{':
-                i += 1
-            i += 1
+        if code[i:].startswith('namespace '):
+            brace = code.find('{', i)
+            if brace != -1:
+                i = brace + 1
             continue
         
-        # Класс
-        if token[0] in ['PUBLIC', 'PRIVATE', 'PROTECTED', 'INTERNAL', 'STATIC', 'ABSTRACT']:
-            # Проверить - это класс?
-            j = i
-            while j < len(tokens) and tokens[j][0] in ['PUBLIC', 'PRIVATE', 
-                  'PROTECTED', 'INTERNAL', 'STATIC', 'ABSTRACT']:
-                j += 1
+        class_match = re.search(r'\bclass\s+\w+', code[i:])
+        if class_match:
+            class_start = i + class_match.start()
+            end_pos, class_name, class_flowchart, method_flowcharts = parse_class(code, class_start)
             
-            if j < len(tokens) and tokens[j][0] == 'CLASS':
-                end_i, name, flowchart, method_flowcharts = parse_cs_class(tokens, i)
+            if class_name:
                 classes.append({
-                    'name': name,
+                    'name': class_name,
                     'type': 'class',
-                    'flowchart': flowchart
+                    'flowchart': class_flowchart
                 })
                 functions.extend(method_flowcharts)
-                i = end_i
-                continue
-        
-        if token[0] == 'CLASS':
-            end_i, name, flowchart, method_flowcharts = parse_cs_class(tokens, i)
-            classes.append({
-                'name': name,
-                'type': 'class',
-                'flowchart': flowchart
-            })
-            functions.extend(method_flowcharts)
-            i = end_i
+            
+            i = end_pos
             continue
         
         i += 1
