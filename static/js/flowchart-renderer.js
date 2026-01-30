@@ -153,13 +153,29 @@ class FlowchartRenderer {
         if (!startNode) startNode = nodes[0];
         if (!startNode) return;
         
+        const endNode = nodes.find(n => n.type === 'end');
         const positioned = new Set();
         const centerX = 350;
         
-        this.positionNode(startNode.id, centerX, this.padding, nodes, positioned, new Set());
+        // Позиционируем все узлы кроме end
+        const maxY = this.positionNode(startNode.id, centerX, this.padding, nodes, positioned, new Set(), endNode?.id);
+        
+        // End всегда в самом низу по центру
+        if (endNode && !positioned.has(endNode.id)) {
+            this.nodePositions.set(endNode.id, { 
+                x: centerX, 
+                y: maxY + this.verticalGap + this.nodeHeight 
+            });
+            positioned.add(endNode.id);
+        }
     }
     
-    positionNode(nodeId, x, y, nodes, positioned, visiting) {
+    positionNode(nodeId, x, y, nodes, positioned, visiting, endNodeId) {
+        // Пропускаем end - он будет позиционирован отдельно
+        if (nodeId === endNodeId) {
+            return y;
+        }
+        
         if (positioned.has(nodeId)) {
             return this.nodePositions.get(nodeId)?.y || y;
         }
@@ -176,7 +192,7 @@ class FlowchartRenderer {
         positioned.add(nodeId);
         
         const children = this.children.get(nodeId) || [];
-        const forwardChildren = children.filter(c => c.branch !== 'loop_back');
+        const forwardChildren = children.filter(c => c.branch !== 'loop_back' && c.to !== endNodeId);
         
         let maxY = y;
         const nodeH = this.getNodeFullHeight(node);
@@ -185,30 +201,33 @@ class FlowchartRenderer {
         if (node.type === 'condition') {
             const yesChild = forwardChildren.find(c => c.branch === 'yes');
             const noChild = forwardChildren.find(c => c.branch === 'no');
-            const exitChildren = forwardChildren.filter(c => c.branch !== 'yes' && c.branch !== 'no');
+            const otherChildren = forwardChildren.filter(c => c.branch !== 'yes' && c.branch !== 'no');
             
+            // Ветка "да" - вниз
             if (yesChild && !positioned.has(yesChild.to)) {
                 const yesY = this.positionNode(
                     yesChild.to, x, y + this.verticalGap + nodeH,
-                    nodes, positioned, new Set(visiting)
+                    nodes, positioned, new Set(visiting), endNodeId
                 );
                 maxY = Math.max(maxY, yesY);
             }
             
+            // Ветка "нет" - вправо
             if (noChild && !positioned.has(noChild.to)) {
                 const noX = x + this.horizontalGap + this.nodeWidth / 2;
                 const noY = this.positionNode(
                     noChild.to, noX, y,
-                    nodes, positioned, new Set(visiting)
+                    nodes, positioned, new Set(visiting), endNodeId
                 );
                 maxY = Math.max(maxY, noY);
             }
             
-            exitChildren.forEach(child => {
+            // Другие дети
+            otherChildren.forEach(child => {
                 if (!positioned.has(child.to)) {
                     const exitY = this.positionNode(
                         child.to, x, maxY + this.verticalGap + this.nodeHeight,
-                        nodes, positioned, new Set(visiting)
+                        nodes, positioned, new Set(visiting), endNodeId
                     );
                     maxY = Math.max(maxY, exitY);
                 }
@@ -225,7 +244,7 @@ class FlowchartRenderer {
             if (bodyChild && !positioned.has(bodyChild.to)) {
                 const bodyY = this.positionNode(
                     bodyChild.to, x, y + this.verticalGap + nodeH,
-                    nodes, positioned, new Set(visiting)
+                    nodes, positioned, new Set(visiting), endNodeId
                 );
                 maxY = Math.max(maxY, bodyY);
             }
@@ -234,7 +253,7 @@ class FlowchartRenderer {
                 if (!positioned.has(child.to)) {
                     const exitY = this.positionNode(
                         child.to, x, maxY + this.verticalGap + this.nodeHeight,
-                        nodes, positioned, new Set(visiting)
+                        nodes, positioned, new Set(visiting), endNodeId
                     );
                     maxY = Math.max(maxY, exitY);
                 }
@@ -250,7 +269,7 @@ class FlowchartRenderer {
             if (!positioned.has(child.to)) {
                 const childY = this.positionNode(
                     child.to, x, nextY,
-                    nodes, positioned, new Set(visiting)
+                    nodes, positioned, new Set(visiting), endNodeId
                 );
                 maxY = Math.max(maxY, childY);
                 nextY = maxY + this.verticalGap + this.nodeHeight;
@@ -579,17 +598,21 @@ class FlowchartRenderer {
         }
         
         // Выход из цикла - СПРАВА и потом ВНИЗ к центру следующего блока
-        if (fromNode?.type === 'loop' && !edge.branch) {
+        if (edge.branch === 'loop_exit' || (fromNode?.type === 'loop' && !edge.branch)) {
             const x1 = fromRight.x;
             const y1 = fromRight.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
             
-            // Вправо, потом вниз, потом к блоку сверху
-            const rightX = Math.max(x1 + this.arrowGap, to.x + this.nodeWidth / 2 + this.arrowGap);
-            const topY = y2 - this.arrowGap;
+            // Если цель ниже - идём справа вниз
+            if (y2 > y1) {
+                const rightX = from.x + this.horizontalGap;
+                const approachY = y2 - this.arrowGap;
+                return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
+            }
             
-            return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
+            // Иначе просто вправо
+            return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2}`;
         }
         
         // "да" от условия - ВНИЗ
@@ -661,6 +684,27 @@ class FlowchartRenderer {
             const midX = x1 + this.arrowGap;
             const topY = y2 - this.arrowGap;
             return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
+        }
+        
+        // Связь к END - всегда идёт вниз к центру end
+        if (toNode?.type === 'end') {
+            const x1 = fromBottom.x;
+            const y1 = fromBottom.y;
+            const x2 = to.x;
+            const y2 = toTop.y;
+            
+            // Если блок справа от end - идём вниз, потом влево
+            if (from.x > to.x + 50) {
+                const downY = Math.max(y1, y2 - this.verticalGap);
+                return `M ${x1} ${y1} L ${x1} ${downY} L ${x2} ${downY} L ${x2} ${y2}`;
+            }
+            // Если блок слева от end - идём вниз, потом вправо
+            if (from.x < to.x - 50) {
+                const downY = Math.max(y1, y2 - this.verticalGap);
+                return `M ${x1} ${y1} L ${x1} ${downY} L ${x2} ${downY} L ${x2} ${y2}`;
+            }
+            // Если примерно по центру - прямо вниз
+            return `M ${x1} ${y1} L ${x1} ${y2 - this.arrowGap} L ${x2} ${y2 - this.arrowGap} L ${x2} ${y2}`;
         }
         
         // Обычная связь - ВНИЗ с гарантированным вертикальным входом

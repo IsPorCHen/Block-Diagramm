@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import ast
-from static.py.js_parser import parse_javascript
-from static.py.cs_parser import parse_csharp
+from js_parser import parse_javascript
+from cs_parser import parse_csharp
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024
@@ -70,6 +70,8 @@ class FlowchartBuilder:
                 self.add_edge(lid[1], end_id, 'нет', 'no')
             elif isinstance(lid, tuple) and lid[0] == 'from_no_branch':
                 self.add_edge(lid[1], end_id, '', 'from_no')
+            elif isinstance(lid, tuple) and lid[0] == 'return':
+                self.add_edge(lid[1], end_id)  # return напрямую к end
             else:
                 self.add_edge(lid, end_id)
     
@@ -114,14 +116,26 @@ class FlowchartBuilder:
     def process_body(self, statements, prev_ids):
         """Обработать список операторов"""
         current_prev_ids = prev_ids
+        return_ids = []  # Собираем return маркеры
         
         for stmt in statements:
             if isinstance(stmt, (ast.FunctionDef, ast.ClassDef)):
                 continue
-            new_prev_ids = self.process_statement(stmt, current_prev_ids)
-            current_prev_ids = new_prev_ids
             
-        return current_prev_ids
+            # Фильтруем return из текущих prev_ids
+            non_return_ids = [p for p in current_prev_ids if not (isinstance(p, tuple) and p[0] == 'return')]
+            new_return_ids = [p for p in current_prev_ids if isinstance(p, tuple) and p[0] == 'return']
+            return_ids.extend(new_return_ids)
+            
+            if non_return_ids:
+                new_prev_ids = self.process_statement(stmt, non_return_ids)
+                current_prev_ids = new_prev_ids
+            else:
+                # Все пути закончились return - не обрабатываем дальше
+                break
+        
+        # Возвращаем все return и текущие выходы
+        return current_prev_ids + return_ids
     
     def process_statement(self, stmt, prev_ids):
         """Обработать один оператор"""
@@ -186,11 +200,11 @@ class FlowchartBuilder:
         elif isinstance(stmt, ast.Return):
             if stmt.value:
                 value = self.get_expr_text(stmt.value)
-                node_id = self.add_node('process', f'return {value}')
+                node_id = self.add_node('output', f'return {value}')
             else:
-                node_id = self.add_node('process', 'return')
+                node_id = self.add_node('output', 'return')
             add_edges_from_prev(node_id)
-            return [node_id]
+            return [('return', node_id)]  # Маркер return
         
         elif isinstance(stmt, ast.Raise):
             if stmt.exc:
@@ -228,6 +242,8 @@ class FlowchartBuilder:
                 self.add_edge(pid[1], cond_id, 'нет', 'no')
             elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
                 self.add_edge(pid[1], cond_id, '', 'from_no')
+            elif isinstance(pid, tuple) and pid[0] == 'return':
+                pass  # return не соединяется
             else:
                 self.add_edge(pid, cond_id)
         
@@ -244,7 +260,10 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'yes'
                     break
             
-            exit_ids.extend(yes_ids)
+            # Добавляем выходы, сохраняя маркеры return
+            for yid in yes_ids:
+                if yid is not None:
+                    exit_ids.append(yid)
         
         # Ветка "нет"
         if stmt.orelse:
@@ -261,12 +280,15 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'no'
                     break
             
-            # Помечаем выходы из ветки "нет" специальным маркером
+            # Помечаем выходы из ветки "нет"
             for nid in no_ids:
-                if nid is not None and not isinstance(nid, tuple):
-                    exit_ids.append(('from_no_branch', nid))
-                else:
-                    exit_ids.append(nid)
+                if nid is not None:
+                    if isinstance(nid, tuple) and nid[0] == 'return':
+                        exit_ids.append(nid)  # return сохраняем
+                    elif isinstance(nid, tuple):
+                        exit_ids.append(nid)
+                    else:
+                        exit_ids.append(('from_no_branch', nid))
         else:
             # Нет else - помечаем условие как имеющее "пустую" ветку нет
             exit_ids.append(('no_empty', cond_id))

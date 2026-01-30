@@ -155,6 +155,8 @@ def connect_nodes(builder, from_id, to_id, label='', branch=''):
             builder.add_edge(from_id[1], to_id, '', 'from_no')
         elif from_id[0] == 'loop_exit':
             builder.add_edge(from_id[1], to_id, '', 'loop_exit')
+        elif from_id[0] == 'return':
+            pass  # return не соединяется с следующим блоком
     else:
         builder.add_edge(from_id, to_id, label, branch)
 
@@ -175,6 +177,8 @@ def parse_method_body(code, builder, prev_ids):
     if not code:
         return prev_ids
     
+    return_ids = []  # Собираем return маркеры
+    
     i = 0
     while i < len(code):
         # Пропуск пробелов
@@ -183,6 +187,16 @@ def parse_method_body(code, builder, prev_ids):
         
         if i >= len(code):
             break
+        
+        # Фильтруем return из prev_ids
+        non_return = [p for p in prev_ids if not (isinstance(p, tuple) and p[0] == 'return')]
+        new_returns = [p for p in prev_ids if isinstance(p, tuple) and p[0] == 'return']
+        return_ids.extend(new_returns)
+        
+        if not non_return:
+            break  # Все пути закончились return
+        
+        prev_ids = non_return
         
         # IF
         if is_keyword(code, i, 'if'):
@@ -262,7 +276,8 @@ def parse_method_body(code, builder, prev_ids):
         
         i = stmt_end + 1
     
-    return prev_ids
+    # Возвращаем все return и текущие выходы
+    return prev_ids + return_ids
 
 
 def parse_if(code, start, builder, prev_ids):
@@ -651,7 +666,7 @@ def parse_try(code, start, builder, prev_ids):
 
 
 def parse_return(code, start, builder, prev_ids):
-    """Парсить return"""
+    """Парсить return - терминальный узел"""
     i = start + 6
     
     stmt_end = code.find(';', i)
@@ -661,13 +676,13 @@ def parse_return(code, start, builder, prev_ids):
     value = code[i:stmt_end].strip()
     text = f'return {value}' if value else 'return'
     
-    ret_id = builder.add_node('output', text)  # output вместо process
+    ret_id = builder.add_node('output', text)
     
     for pid in prev_ids:
         if pid is not None:
             connect_nodes(builder, pid, ret_id)
     
-    return stmt_end + 1, [ret_id]
+    return stmt_end + 1, [('return', ret_id)]  # Маркер return
 
 
 def parse_throw(code, start, builder, prev_ids):
@@ -710,7 +725,13 @@ def parse_method(name, params, body, class_name=""):
     for lid in last_ids:
         if lid is None:
             continue
-        connect_nodes(builder, lid, end_id)
+        if isinstance(lid, tuple):
+            if lid[0] == 'return':
+                builder.add_edge(lid[1], end_id)  # return к end
+            else:
+                connect_nodes(builder, lid, end_id)
+        else:
+            builder.add_edge(lid, end_id)
     
     return builder.get_flowchart_data()
 
