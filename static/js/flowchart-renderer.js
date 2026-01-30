@@ -1,20 +1,29 @@
+/**
+ * FlowchartRenderer - Рендерер блок-схем
+ * 
+ * Все стрелки входят в блоки СВЕРХУ с видимым вертикальным сегментом
+ * Циклы: шестиугольник, выход СПРАВА, обратная связь СЛЕВА
+ * Условия: ромб, "да" вниз, "нет" вправо
+ */
 class FlowchartRenderer {
     constructor(container) {
         this.container = container;
         this.svg = null;
         this.nodePositions = new Map();
         
+        // Размеры
         this.nodeWidth = 180;
         this.nodeHeight = 40;
         this.conditionSize = 45;
         this.hexWidth = 180;
         this.hexHeight = 40;
-        this.verticalGap = 70;
+        this.verticalGap = 70;  // Увеличен
         this.horizontalGap = 130;
         this.padding = 80;
         this.loopLeftOffset = 50;
-        this.arrowGap = 25;
+        this.arrowGap = 25; // Минимальный отступ для стрелок
         
+        // Цвета
         this.colors = {
             fill: '#dbeafe',
             stroke: '#2563eb',
@@ -139,7 +148,7 @@ class FlowchartRenderer {
         let maxY = y;
         const nodeH = this.getNodeFullHeight(node);
         
-        // if
+        // Условие (if)
         if (node.type === 'condition') {
             const yesChild = forwardChildren.find(c => c.branch === 'yes');
             const noChild = forwardChildren.find(c => c.branch === 'no');
@@ -175,7 +184,7 @@ class FlowchartRenderer {
             return maxY;
         }
         
-        // цикл
+        // Цикл (loop)
         if (node.type === 'loop') {
             const bodyChild = forwardChildren.find(c => c.branch === 'loop_body');
             const exitChildren = forwardChildren.filter(c => c.branch !== 'loop_body');
@@ -200,7 +209,8 @@ class FlowchartRenderer {
             
             return maxY;
         }
-
+        
+        // Обычный узел
         let nextY = y + this.verticalGap + nodeH;
         
         forwardChildren.forEach(child => {
@@ -270,6 +280,8 @@ class FlowchartRenderer {
         defs.appendChild(marker);
         this.svg.appendChild(defs);
     }
+    
+    // === ОТРИСОВКА УЗЛОВ ===
     
     drawNode(node) {
         const pos = this.nodePositions.get(node.id);
@@ -429,6 +441,8 @@ class FlowchartRenderer {
         g.appendChild(this.createText(x, y, text, this.hexWidth - 50));
     }
     
+    // === ОТРИСОВКА СВЯЗЕЙ ===
+    
     drawEdge(edge, nodes) {
         const fromPos = this.nodePositions.get(edge.from);
         const toPos = this.nodePositions.get(edge.to);
@@ -454,12 +468,14 @@ class FlowchartRenderer {
     }
     
     calculatePath(from, to, fromNode, toNode, edge) {
+        // Получаем точки выхода и входа
         const fromBottom = this.getBottomPoint(from, fromNode);
         const fromRight = this.getRightPoint(from, fromNode);
         const fromLeft = this.getLeftPoint(from, fromNode);
         const toTop = this.getTopPoint(to, toNode);
         const toLeft = this.getLeftPoint(to, toNode);
-
+        
+        // Веер от полей класса к методам
         if (edge.branch?.startsWith('fan_')) {
             const x1 = from.x;
             const y1 = fromBottom.y;
@@ -469,7 +485,8 @@ class FlowchartRenderer {
             const midY = y1 + (y2 - y1) / 3;
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
-
+        
+        // Обратная связь цикла - СЛЕВА
         if (edge.branch === 'loop_back') {
             const x1 = fromLeft.x;
             const y1 = fromLeft.y;
@@ -479,32 +496,38 @@ class FlowchartRenderer {
             const loopX = Math.min(x1, x2) - this.loopLeftOffset;
             return `M ${x1} ${y1} L ${loopX} ${y1} L ${loopX} ${y2} L ${x2} ${y2}`;
         }
-
+        
+        // Тело цикла - вниз
         if (edge.branch === 'loop_body') {
             const x1 = fromBottom.x;
             const y1 = fromBottom.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
-
+            
+            // Прямая линия вниз с небольшим отступом
             if (Math.abs(x1 - x2) < 5) {
                 return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
+            // Если не по центру - с изломом
             const midY = y1 + this.arrowGap;
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
+        // Выход из цикла - СПРАВА и потом ВНИЗ к центру следующего блока
         if (fromNode?.type === 'loop' && !edge.branch) {
             const x1 = fromRight.x;
             const y1 = fromRight.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
             
+            // Вправо, потом вниз, потом к блоку сверху
             const rightX = Math.max(x1 + this.arrowGap, to.x + this.nodeWidth / 2 + this.arrowGap);
             const topY = y2 - this.arrowGap;
             
             return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
         }
         
+        // "да" от условия - ВНИЗ
         if (edge.branch === 'yes') {
             const x1 = fromBottom.x;
             const y1 = fromBottom.y;
@@ -518,32 +541,41 @@ class FlowchartRenderer {
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
+        // "нет" от условия - ВПРАВО, ОБХОД справа, потом ВНИЗ к блоку
         if (edge.branch === 'no') {
             const x1 = fromRight.x;
             const y1 = fromRight.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
             
+            // Если цель на том же уровне (рядом справа)
             if (Math.abs(from.y - to.y) < 10 && to.x > from.x) {
                 return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y1}`;
             }
-
+            
+            // Вычисляем правую границу для обхода
+            // Нужно обойти все блоки между условием и целевым блоком
             const rightOffset = this.horizontalGap;
             const bypassX = from.x + rightOffset;
             
+            // Спускаемся вниз справа, затем к целевому блоку сверху
             const approachY = y2 - this.arrowGap;
             
             return `M ${x1} ${y1} L ${bypassX} ${y1} L ${bypassX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
         }
         
+        // Выход из ветки "нет" к следующему блоку - обходим справа
         if (edge.branch === 'from_no') {
             const x1 = fromRight.x;
             const y1 = fromRight.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
+            
+            // Вычисляем правую границу для обхода
             const rightOffset = this.horizontalGap;
             const bypassX = Math.max(from.x + rightOffset, x2 + this.nodeWidth / 2 + this.arrowGap);
             
+            // Спускаемся вниз справа, затем к целевому блоку сверху
             const approachY = y2 - this.arrowGap;
             
             return `M ${x1} ${y1} L ${bypassX} ${y1} L ${bypassX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
@@ -560,22 +592,26 @@ class FlowchartRenderer {
             const topY = y2 - this.arrowGap;
             return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${topY} L ${x2} ${topY} L ${x2} ${y2}`;
         }
-
+        
+        // Обычная связь - ВНИЗ с гарантированным вертикальным входом
         const x1 = fromBottom.x;
         const y1 = fromBottom.y;
         const x2 = toTop.x;
         const y2 = toTop.y;
-
+        
+        // Если на одной линии - просто вертикаль
         if (Math.abs(x1 - x2) < 5) {
             return `M ${x1} ${y1} L ${x2} ${y2}`;
         }
-
+        
+        // Иначе - с изломом, и обязательно входим сверху
         const midY = y1 + this.arrowGap;
         const topY = y2 - this.arrowGap;
         
         return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
     }
-
+    
+    // Точки выхода/входа для разных типов узлов
     getBottomPoint(pos, node) {
         if (!node) return { x: pos.x, y: pos.y + this.nodeHeight / 2 };
         

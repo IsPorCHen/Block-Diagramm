@@ -1,8 +1,12 @@
 from flask import Flask, render_template, request, jsonify
 import ast
+from static.py.js_parser import parse_javascript
+from static.py.cs_parser import parse_csharp
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024
+
+SUPPORTED_EXTENSIONS = {'.py', '.js', '.cs'}
 
 
 class FlowchartBuilder:
@@ -92,7 +96,7 @@ class FlowchartBuilder:
                     if isinstance(target, ast.Name):
                         fields.append(target.id)
         
-        # блок полей
+        # Блок полей
         if fields:
             fields_text = ', '.join(fields)
             fields_id = self.add_node('input', f'Поля: {fields_text}')
@@ -101,8 +105,10 @@ class FlowchartBuilder:
         else:
             source_id = class_id
         
+        # Все методы соединены от полей ВЕЕРОМ (не линейно!)
         for i, method_name in enumerate(methods):
             method_id = self.add_node('method', method_name + '()')
+            # Каждый метод напрямую от source_id с указанием позиции
             self.add_edge(source_id, method_id, '', f'fan_{i}')
     
     def process_body(self, statements, prev_ids):
@@ -119,14 +125,17 @@ class FlowchartBuilder:
     
     def process_statement(self, stmt, prev_ids):
         """Обработать один оператор"""
-
+        
+        # Вспомогательная функция для добавления рёбер с учётом маркеров
         def add_edges_from_prev(target_id):
             for pid in prev_ids:
                 if pid is None:
                     continue
                 if isinstance(pid, tuple) and pid[0] == 'no_empty':
+                    # Это ветка "нет" от условия без else
                     self.add_edge(pid[1], target_id, 'нет', 'no')
                 elif isinstance(pid, tuple) and pid[0] == 'from_no_branch':
+                    # Это выход из ветки "нет" - рисуем обходной путь
                     self.add_edge(pid[1], target_id, '', 'from_no')
                 else:
                     self.add_edge(pid, target_id)
@@ -224,7 +233,7 @@ class FlowchartBuilder:
         
         exit_ids = []
         
-        # ветка "да"
+        # Ветка "да"
         if stmt.body:
             edge_idx = len(self.edges)
             yes_ids = self.process_body(stmt.body, [cond_id])
@@ -237,7 +246,7 @@ class FlowchartBuilder:
             
             exit_ids.extend(yes_ids)
         
-        # ветка "нет"
+        # Ветка "нет"
         if stmt.orelse:
             edge_idx = len(self.edges)
             
@@ -252,21 +261,24 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'no'
                     break
             
+            # Помечаем выходы из ветки "нет" специальным маркером
             for nid in no_ids:
                 if nid is not None and not isinstance(nid, tuple):
                     exit_ids.append(('from_no_branch', nid))
                 else:
                     exit_ids.append(nid)
         else:
-            # нет else - помечаем условие как "пустую" ветку нет
+            # Нет else - помечаем условие как имеющее "пустую" ветку нет
             exit_ids.append(('no_empty', cond_id))
         
+        # Фильтруем exit_ids, но сохраняем кортежи
         exit_ids = [eid for eid in exit_ids if eid is not None]
         return exit_ids if exit_ids else [None]
     
     def process_while(self, stmt, prev_ids):
         """WHILE - шестиугольник, обратная связь слева, выход справа"""
         condition = self.get_expr_text(stmt.test)
+        # Тип loop - будет шестиугольник
         loop_id = self.add_node('loop', condition)
         
         for pid in prev_ids:
@@ -283,12 +295,14 @@ class FlowchartBuilder:
             edge_idx = len(self.edges)
             body_ids = self.process_body(stmt.body, [loop_id])
             
+            # Вход в тело - "да" вниз
             for i in range(edge_idx, len(self.edges)):
                 if self.edges[i]['from'] == loop_id and not self.edges[i]['label']:
                     self.edges[i]['label'] = ''
                     self.edges[i]['branch'] = 'loop_body'
                     break
             
+            # Обратная связь от конца тела к циклу (слева)
             for bid in body_ids:
                 if bid is None:
                     continue
@@ -298,14 +312,16 @@ class FlowchartBuilder:
                     self.add_edge(bid[1], loop_id, '', 'loop_back')
                 else:
                     self.add_edge(bid, loop_id, '', 'loop_back')
-
-        return [loop_id]
+        
+        # Выход из цикла будет справа от шестиугольника
+        return [loop_id]  # loop_id как точка выхода (справа)
     
     def process_for(self, stmt, prev_ids):
         """FOR - шестиугольник"""
         target = self.get_name(stmt.target)
         iter_val = self.get_expr_text(stmt.iter)
         
+        # Шестиугольник цикла
         loop_id = self.add_node('loop', f'для {target} в {iter_val}')
         
         for pid in prev_ids:
@@ -501,82 +517,103 @@ def upload_file():
         if file.filename == '':
             return jsonify({'error': 'Файл не выбран'}), 400
         
-        if not file.filename.endswith('.py'):
-            return jsonify({'error': 'Разрешены только файлы .py'}), 400
+        # Определяем расширение файла
+        filename = file.filename.lower()
+        ext = None
+        for e in SUPPORTED_EXTENSIONS:
+            if filename.endswith(e):
+                ext = e
+                break
+        
+        if not ext:
+            return jsonify({'error': 'Разрешены файлы: .py, .js, .cs'}), 400
 
         code = file.read().decode('utf-8')
         
         if len(code) > 1024 * 1024:
             return jsonify({'error': 'Файл слишком большой'}), 400
 
-        try:
-            tree = ast.parse(code)
-        except SyntaxError as e:
-            return jsonify({'error': f'Синтаксическая ошибка: строка {e.lineno}'}), 400
-
-        functions = []
-        classes = []
-        
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef):
-                builder = FlowchartBuilder()
-                builder.build_function(node)
-                functions.append({
-                    'name': node.name,
-                    'type': 'function',
-                    'flowchart': builder.get_flowchart_data()
-                })
-            elif isinstance(node, ast.ClassDef):
-                class_builder = FlowchartBuilder()
-                class_builder.build_class(node)
-                classes.append({
-                    'name': node.name,
-                    'type': 'class',
-                    'flowchart': class_builder.get_flowchart_data()
-                })
-                
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        method_builder = FlowchartBuilder()
-                        method_builder.build_function(item)
-                        functions.append({
-                            'name': f'{node.name}.{item.name}',
-                            'type': 'method',
-                            'flowchart': method_builder.get_flowchart_data()
-                        })
-        
-        main_builder = FlowchartBuilder()
-        main_body = [stmt for stmt in tree.body 
-                     if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
-        
-        main_flowchart = {'nodes': [], 'edges': []}
-        if main_body:
-            start_id = main_builder.add_node('start', 'начало main()')
-            last_ids = main_builder.process_body(main_body, [start_id])
-            end_id = main_builder.add_node('end', '')
-            for lid in last_ids:
-                if lid is None:
-                    continue
-                if isinstance(lid, tuple) and lid[0] == 'no_empty':
-                    main_builder.add_edge(lid[1], end_id, 'нет', 'no')
-                elif isinstance(lid, tuple) and lid[0] == 'from_no_branch':
-                    main_builder.add_edge(lid[1], end_id, '', 'from_no')
-                else:
-                    main_builder.add_edge(lid, end_id)
-            main_flowchart = main_builder.get_flowchart_data()
-
-        return jsonify({
-            'success': True,
-            'main_flowchart': main_flowchart,
-            'functions': functions,
-            'classes': classes,
-            'code': code
-        })
+        # Парсинг в зависимости от языка
+        if ext == '.py':
+            return parse_python(code)
+        elif ext == '.js':
+            result = parse_javascript(code)
+            return jsonify(result)
+        elif ext == '.cs':
+            result = parse_csharp(code)
+            return jsonify(result)
         
     except Exception as e:
         import traceback
         print(f"Error: {traceback.format_exc()}")
         return jsonify({'error': f'Ошибка: {str(e)}'}), 500
+
+
+def parse_python(code):
+    """Парсинг Python кода"""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return jsonify({'error': f'Синтаксическая ошибка: строка {e.lineno}'}), 400
+
+    functions = []
+    classes = []
+    
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            builder = FlowchartBuilder()
+            builder.build_function(node)
+            functions.append({
+                'name': node.name,
+                'type': 'function',
+                'flowchart': builder.get_flowchart_data()
+            })
+        elif isinstance(node, ast.ClassDef):
+            class_builder = FlowchartBuilder()
+            class_builder.build_class(node)
+            classes.append({
+                'name': node.name,
+                'type': 'class',
+                'flowchart': class_builder.get_flowchart_data()
+            })
+            
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef):
+                    method_builder = FlowchartBuilder()
+                    method_builder.build_function(item)
+                    functions.append({
+                        'name': f'{node.name}.{item.name}',
+                        'type': 'method',
+                        'flowchart': method_builder.get_flowchart_data()
+                    })
+    
+    main_builder = FlowchartBuilder()
+    main_body = [stmt for stmt in tree.body 
+                 if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
+    
+    main_flowchart = {'nodes': [], 'edges': []}
+    if main_body:
+        start_id = main_builder.add_node('start', 'начало main()')
+        last_ids = main_builder.process_body(main_body, [start_id])
+        end_id = main_builder.add_node('end', '')
+        for lid in last_ids:
+            if lid is None:
+                continue
+            if isinstance(lid, tuple) and lid[0] == 'no_empty':
+                main_builder.add_edge(lid[1], end_id, 'нет', 'no')
+            elif isinstance(lid, tuple) and lid[0] == 'from_no_branch':
+                main_builder.add_edge(lid[1], end_id, '', 'from_no')
+            else:
+                main_builder.add_edge(lid, end_id)
+        main_flowchart = main_builder.get_flowchart_data()
+
+    return jsonify({
+        'success': True,
+        'main_flowchart': main_flowchart,
+        'functions': functions,
+        'classes': classes,
+        'code': code
+    })
 
 
 if __name__ == '__main__':

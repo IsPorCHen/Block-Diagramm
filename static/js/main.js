@@ -1,6 +1,11 @@
+/**
+ * Main JavaScript - управление загрузкой и интерактивностью блок-схем
+ */
+
 let currentFile = null;
 const flowchartInstances = new Map();
 
+// DOM элементы
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 const selectFileBtn = document.getElementById('selectFileBtn');
@@ -61,8 +66,11 @@ function handleDrop(e) {
 }
 
 function setFile(file) {
-    if (!file.name.endsWith('.py')) {
-        showError('Пожалуйста, выберите файл .py');
+    const validExtensions = ['.py', '.js', '.cs'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!validExtensions.includes(ext)) {
+        showError('Разрешены файлы: .py, .js, .cs');
         return;
     }
     
@@ -206,7 +214,7 @@ function createFlowchartPanel(id, title, flowchartData) {
     
     wrapper.appendChild(panel);
     
-    // Рендер блок-схемы
+    // Рендерим блок-схему
     const container = document.getElementById(`flowchart-${id}`);
     const renderer = new FlowchartRenderer(container);
     const size = renderer.render(flowchartData);
@@ -226,6 +234,7 @@ function createFlowchartPanel(id, title, flowchartData) {
     };
     flowchartInstances.set(id, state);
     
+    // Привязываем события
     setupPanelInteraction(panel, state);
 }
 
@@ -317,14 +326,16 @@ async function downloadFlowchart(state) {
             showError('Блок-схема не найдена');
             return;
         }
-
+        
+        // Клонируем SVG
         const svgClone = svgElement.cloneNode(true);
         const viewBox = svgElement.getAttribute('viewBox');
         const [, , width, height] = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 800, 600];
         
         svgClone.setAttribute('width', width);
         svgClone.setAttribute('height', height);
-
+        
+        // Добавляем белый фон
         const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         bg.setAttribute('width', '100%');
         bg.setAttribute('height', '100%');

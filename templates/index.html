@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Генератор блок-схем из Python кода</title>
+    <title>Генератор блок-схем</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🔷 Генератор блок-схем</h1>
-            <p class="subtitle">Автоматическое создание блок-схем из Python кода по ГОСТ</p>
+            <p class="subtitle">Автоматическое создание блок-схем из кода Python, JavaScript, C# по ГОСТ</p>
         </header>
 
         <main>
@@ -22,9 +22,9 @@
                             <polyline points="17 8 12 3 7 8"></polyline>
                             <line x1="12" y1="3" x2="12" y2="15"></line>
                         </svg>
-                        <h3>Загрузите файл Python</h3>
-                        <p>Перетащите файл .py сюда или нажмите для выбора</p>
-                        <input type="file" id="fileInput" accept=".py" hidden>
+                        <h3>Загрузите файл</h3>
+                        <p>Перетащите файл .py, .js или .cs сюда или нажмите для выбора</p>
+                        <input type="file" id="fileInput" accept=".py,.js,.cs" hidden>
                         <button class="btn btn-primary" id="selectFileBtn">Выбрать файл</button>
                     </div>
                     <div class="file-info" id="fileInfo" style="display: none;">
