@@ -570,15 +570,28 @@ class FlowchartRenderer {
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
-        // Обратная связь цикла - СЛЕВА
+        // Обратная связь цикла - от блока к циклу выше
         if (edge.branch === 'loop_back') {
-            const x1 = fromLeft.x;
-            const y1 = fromLeft.y;
             const x2 = toLeft.x;
             const y2 = toLeft.y;
             
+            // Нижняя точка источника
+            const bottomY = from.y + this.nodeHeight / 2;
+            
+            // Если блок справа от цикла - идём вниз, потом влево, потом вверх
+            if (from.x > to.x + 50) {
+                const x1 = from.x - this.nodeWidth / 2;  // Левый край блока
+                const loopX = x2 - this.loopLeftOffset;
+                
+                return `M ${x1} ${from.y} L ${loopX} ${from.y} L ${loopX} ${y2} L ${x2} ${y2}`;
+            }
+            
+            // Блок под циклом или слева - стандартный путь
+            const x1 = from.x - this.nodeWidth / 2;
             const loopX = Math.min(x1, x2) - this.loopLeftOffset;
-            return `M ${x1} ${y1} L ${loopX} ${y1} L ${loopX} ${y2} L ${x2} ${y2}`;
+            
+            // От нижней части блока влево и вверх
+            return `M ${x1} ${bottomY} L ${x1} ${bottomY + 10} L ${loopX} ${bottomY + 10} L ${loopX} ${y2} L ${x2} ${y2}`;
         }
         
         // Тело цикла - вниз
@@ -615,13 +628,25 @@ class FlowchartRenderer {
             return `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2}`;
         }
         
-        // "да" от условия - ВНИЗ
+        // "да" от условия - ВНИЗ или ВВЕРХ (для do-while)
         if (edge.branch === 'yes') {
             const x1 = fromBottom.x;
             const y1 = fromBottom.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
             
+            // Если цель ВЫШЕ источника (do-while) - идём слева обходом
+            if (to.y < from.y) {
+                const leftX1 = this.getLeftPoint(from, fromNode).x;
+                const leftX2 = this.getLeftPoint(to, toNode).x;
+                const loopX = Math.min(leftX1, leftX2) - this.loopLeftOffset;
+                const y1Left = from.y;  // Выходим слева от ромба
+                const y2Left = to.y;    // Входим слева в целевой блок
+                
+                return `M ${leftX1} ${y1Left} L ${loopX} ${y1Left} L ${loopX} ${y2Left} L ${leftX2} ${y2Left}`;
+            }
+            
+            // Цель ниже - обычная отрисовка вниз
             if (Math.abs(x1 - x2) < 5) {
                 return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
@@ -629,29 +654,32 @@ class FlowchartRenderer {
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
-        // "нет" от условия - ВПРАВО, ОБХОД справа, потом ВНИЗ к блоку
+        // "нет" от условия - ВПРАВО к следующему блоку
         if (edge.branch === 'no') {
             const x1 = fromRight.x;
             const y1 = fromRight.y;
             const x2 = toTop.x;
             const y2 = toTop.y;
+            const toLeft = this.getLeftPoint(to, toNode);
             
-            // Получаем смещение для этой линии
-            const offset = this.getEdgeOffset(edge.to, 'no');
-            
-            // Если цель на том же уровне (рядом справа)
-            if (Math.abs(from.y - to.y) < 10 && to.x > from.x) {
-                return `M ${x1} ${y1} L ${to.x - this.nodeWidth / 2} ${y1}`;
+            // Если цель справа - горизонтальная линия к левой стороне цели
+            if (to.x > from.x) {
+                // Если цель на том же уровне или близко - просто горизонталь
+                if (Math.abs(y1 - to.y) < this.verticalGap) {
+                    return `M ${x1} ${y1} L ${toLeft.x} ${toLeft.y}`;
+                }
+                // Цель ниже справа - вправо, потом вниз, потом к цели
+                if (to.y > from.y) {
+                    const midX = (x1 + toLeft.x) / 2;
+                    return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${toLeft.y} L ${toLeft.x} ${toLeft.y}`;
+                }
             }
             
-            // Вычисляем правую границу для обхода с учётом смещения
-            const rightOffset = this.horizontalGap + offset;
-            const bypassX = from.x + rightOffset;
-            
-            // Спускаемся вниз справа, затем к целевому блоку сверху
+            // Цель ниже слева - обходим справа
+            const rightX = Math.max(from.x, to.x) + this.horizontalGap;
             const approachY = y2 - this.arrowGap;
             
-            return `M ${x1} ${y1} L ${bypassX} ${y1} L ${bypassX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
+            return `M ${x1} ${y1} L ${rightX} ${y1} L ${rightX} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
         }
         
         // Выход из ветки "нет" к следующему блоку - обходим справа
@@ -693,18 +721,22 @@ class FlowchartRenderer {
             const x2 = to.x;
             const y2 = toTop.y;
             
-            // Если блок справа от end - идём вниз, потом влево
-            if (from.x > to.x + 50) {
-                const downY = Math.max(y1, y2 - this.verticalGap);
-                return `M ${x1} ${y1} L ${x1} ${downY} L ${x2} ${downY} L ${x2} ${y2}`;
+            // Проверяем что y2 > y1 (end ниже источника)
+            if (y2 <= y1) {
+                // End выше или на уровне - это ошибка позиционирования, просто рисуем
+                return `M ${x1} ${y1} L ${x2} ${y2}`;
             }
-            // Если блок слева от end - идём вниз, потом вправо
-            if (from.x < to.x - 50) {
-                const downY = Math.max(y1, y2 - this.verticalGap);
-                return `M ${x1} ${y1} L ${x1} ${downY} L ${x2} ${downY} L ${x2} ${y2}`;
+            
+            // Горизонтальная линия на уровне чуть выше end, потом вниз
+            const approachY = y2 - this.arrowGap;
+            
+            // Если блоки далеко по горизонтали
+            if (Math.abs(from.x - to.x) > 30) {
+                return `M ${x1} ${y1} L ${x1} ${approachY} L ${x2} ${approachY} L ${x2} ${y2}`;
             }
-            // Если примерно по центру - прямо вниз
-            return `M ${x1} ${y1} L ${x1} ${y2 - this.arrowGap} L ${x2} ${y2 - this.arrowGap} L ${x2} ${y2}`;
+            
+            // Примерно по центру - прямо вниз
+            return `M ${x1} ${y1} L ${x2} ${y2}`;
         }
         
         // Обычная связь - ВНИЗ с гарантированным вертикальным входом

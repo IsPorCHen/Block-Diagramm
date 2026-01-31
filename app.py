@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import ast
-from js_parser import parse_javascript
-from cs_parser import parse_csharp
+from static.py.js_parser import parse_javascript
+from static.py.cs_parser import parse_csharp
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024
@@ -260,7 +260,7 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'yes'
                     break
             
-            # Добавляем выходы, сохраняя маркеры return
+            # Добавляем выходы из ветки "да"
             for yid in yes_ids:
                 if yid is not None:
                     exit_ids.append(yid)
@@ -280,15 +280,18 @@ class FlowchartBuilder:
                     self.edges[i]['branch'] = 'no'
                     break
             
-            # Помечаем выходы из ветки "нет"
+            # Когда есть else, выходы из ветки "нет" - обычные (без маркеров)
+            # Они сливаются с выходами из "да" к следующему блоку
             for nid in no_ids:
                 if nid is not None:
                     if isinstance(nid, tuple) and nid[0] == 'return':
                         exit_ids.append(nid)  # return сохраняем
                     elif isinstance(nid, tuple):
+                        # Передаём маркеры как есть
                         exit_ids.append(nid)
                     else:
-                        exit_ids.append(('from_no_branch', nid))
+                        # Обычный выход - без маркера from_no_branch
+                        exit_ids.append(nid)
         else:
             # Нет else - помечаем условие как имеющее "пустую" ветку нет
             exit_ids.append(('no_empty', cond_id))
@@ -329,9 +332,13 @@ class FlowchartBuilder:
                 if bid is None:
                     continue
                 if isinstance(bid, tuple) and bid[0] == 'no_empty':
-                    self.add_edge(bid[1], loop_id, 'нет', 'loop_back')
+                    # Без метки - просто loop_back
+                    self.add_edge(bid[1], loop_id, '', 'loop_back')
                 elif isinstance(bid, tuple) and bid[0] == 'from_no_branch':
                     self.add_edge(bid[1], loop_id, '', 'loop_back')
+                elif isinstance(bid, tuple) and bid[0] == 'return':
+                    # return внутри цикла не возвращается к циклу
+                    pass
                 else:
                     self.add_edge(bid, loop_id, '', 'loop_back')
         
@@ -369,9 +376,13 @@ class FlowchartBuilder:
                 if bid is None:
                     continue
                 if isinstance(bid, tuple) and bid[0] == 'no_empty':
-                    self.add_edge(bid[1], loop_id, 'нет', 'loop_back')
+                    # Без метки - просто loop_back
+                    self.add_edge(bid[1], loop_id, '', 'loop_back')
                 elif isinstance(bid, tuple) and bid[0] == 'from_no_branch':
                     self.add_edge(bid[1], loop_id, '', 'loop_back')
+                elif isinstance(bid, tuple) and bid[0] == 'return':
+                    # return внутри цикла не возвращается к циклу
+                    pass
                 else:
                     self.add_edge(bid, loop_id, '', 'loop_back')
         
@@ -416,11 +427,34 @@ class FlowchartBuilder:
         
         if stmt.finalbody:
             finally_id = self.add_node('finally', 'finally')
+            
+            # Собираем return маркеры отдельно
+            return_markers = []
             for eid in exit_ids:
-                if eid is not None:
+                if eid is None:
+                    continue
+                if isinstance(eid, tuple) and eid[0] == 'return':
+                    # Return идёт в finally, но сохраняем маркер
+                    self.add_edge(eid[1], finally_id)
+                    return_markers.append(eid)
+                elif isinstance(eid, tuple):
+                    self.add_edge(eid[1], finally_id)
+                else:
                     self.add_edge(eid, finally_id)
+            
             finally_body_ids = self.process_body(stmt.finalbody, [finally_id])
-            return finally_body_ids
+            
+            # Если были return в try/except, они должны пройти через finally и потом к end
+            # Возвращаем выходы из finally + return маркеры
+            result = []
+            for fid in finally_body_ids:
+                if fid is not None:
+                    result.append(fid)
+            
+            # Добавляем return маркеры - они уже прошли через finally
+            result.extend(return_markers)
+            
+            return result if result else [None]
         
         exit_ids = [eid for eid in exit_ids if eid is not None]
         return exit_ids if exit_ids else [None]
@@ -494,6 +528,20 @@ class FlowchartBuilder:
             lower = self.get_expr_text(node.lower) if node.lower else ''
             upper = self.get_expr_text(node.upper) if node.upper else ''
             return f'{lower}:{upper}'
+        elif isinstance(node, ast.JoinedStr):
+            # f-string - собираем части
+            parts = []
+            for val in node.values:
+                if isinstance(val, ast.Constant):
+                    parts.append(str(val.value))
+                elif isinstance(val, ast.FormattedValue):
+                    parts.append('{' + self.get_expr_text(val.value) + '}')
+                else:
+                    parts.append(self.get_expr_text(val))
+            result = ''.join(parts)
+            if len(result) > 25:
+                result = result[:22] + '...'
+            return f'f"{result}"'
         return 'expr'
     
     def get_op(self, op):

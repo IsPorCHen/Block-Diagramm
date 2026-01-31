@@ -377,13 +377,15 @@ def parse_if(code, start, builder, prev_ids):
                 builder.edges[j]['branch'] = 'no'
                 break
         
-        # Собираем выходы из "нет"
+        # Когда есть else, выходы из ветки "нет" - обычные (без маркеров)
         for nid in no_ids:
             if nid is not None:
                 if isinstance(nid, tuple):
+                    # Сохраняем маркеры return и другие
                     exit_ids.append(nid)
                 else:
-                    exit_ids.append(('from_no_branch', nid))
+                    # Обычный выход - без маркера
+                    exit_ids.append(nid)
     else:
         # Нет else - добавляем маркер
         exit_ids.append(('no_empty', cond_id))
@@ -502,22 +504,21 @@ def parse_while(code, start, builder, prev_ids):
 
 
 def parse_do_while(code, start, builder, prev_ids):
-    """Парсить do-while"""
+    """Парсить do-while: тело → условие (ромб) → да к началу тела, нет дальше"""
     i = start + 2
     
     while i < len(code) and code[i] in ' \t\n\r':
         i += 1
     
-    do_id = builder.add_node('process', 'do')
+    # Запоминаем количество узлов до парсинга тела
+    nodes_before = len(builder.nodes)
     
-    for pid in prev_ids:
-        connect_nodes(builder, pid, do_id)
-    
+    # Парсим тело цикла напрямую от prev_ids
     if i < len(code) and code[i] == '{':
         body, i = extract_block(code, i)
-        body_ids = parse_body(body, builder, [do_id])
+        body_ids = parse_body(body, builder, prev_ids)
     else:
-        body_ids = [do_id]
+        body_ids = prev_ids
     
     while i < len(code) and code[i] in ' \t\n\r':
         i += 1
@@ -533,13 +534,20 @@ def parse_do_while(code, start, builder, prev_ids):
             condition = code[i + 1:paren_end].strip()
             i = paren_end + 1
         
+        # Создаём условие (ромб)
         cond_id = builder.add_node('condition', condition + '?')
         
+        # Связываем конец тела с условием
         for bid in body_ids:
             if bid is not None and not isinstance(bid, tuple):
                 builder.add_edge(bid, cond_id)
+            elif isinstance(bid, tuple) and bid[0] != 'return':
+                builder.add_edge(bid[1], cond_id)
         
-        builder.add_edge(cond_id, do_id, 'да', 'yes')
+        # Первый блок тела - это первый узел добавленный после nodes_before
+        if nodes_before < len(builder.nodes) - 1:  # -1 для cond_id
+            first_body_node = builder.nodes[nodes_before]['id']
+            builder.add_edge(cond_id, first_body_node, 'да', 'yes')
         
         while i < len(code) and code[i] in ' \t\n\r;':
             i += 1
