@@ -19,7 +19,7 @@ class FlowchartRenderer {
         this.hexWidth = 180;
         this.hexHeight = 40;
         this.verticalGap = 70;
-        this.horizontalGap = 130;
+        this.horizontalGap = 200;  // Увеличен для избежания перекрытий
         this.padding = 80;
         this.loopLeftOffset = 50;
         this.arrowGap = 25;
@@ -570,28 +570,21 @@ class FlowchartRenderer {
             return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
         
-        // Обратная связь цикла - от блока к циклу выше
+        // Обратная связь цикла - СЛЕВА от блока к циклу выше
         if (edge.branch === 'loop_back') {
+            // Левая точка источника
+            const x1 = fromLeft.x;
+            const y1 = fromLeft.y;
+            
+            // Левая точка цели (цикл)
             const x2 = toLeft.x;
             const y2 = toLeft.y;
             
-            // Нижняя точка источника
-            const bottomY = from.y + this.nodeHeight / 2;
-            
-            // Если блок справа от цикла - идём вниз, потом влево, потом вверх
-            if (from.x > to.x + 50) {
-                const x1 = from.x - this.nodeWidth / 2;  // Левый край блока
-                const loopX = x2 - this.loopLeftOffset;
-                
-                return `M ${x1} ${from.y} L ${loopX} ${from.y} L ${loopX} ${y2} L ${x2} ${y2}`;
-            }
-            
-            // Блок под циклом или слева - стандартный путь
-            const x1 = from.x - this.nodeWidth / 2;
+            // Общая X координата для вертикальной линии (слева от обоих блоков)
             const loopX = Math.min(x1, x2) - this.loopLeftOffset;
             
-            // От нижней части блока влево и вверх
-            return `M ${x1} ${bottomY} L ${x1} ${bottomY + 10} L ${loopX} ${bottomY + 10} L ${loopX} ${y2} L ${x2} ${y2}`;
+            // Путь: влево от блока → вверх → вправо к циклу
+            return `M ${x1} ${y1} L ${loopX} ${y1} L ${loopX} ${y2} L ${x2} ${y2}`;
         }
         
         // Тело цикла - вниз
