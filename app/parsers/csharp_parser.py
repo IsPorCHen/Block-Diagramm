@@ -1,3 +1,5 @@
+import sys
+import os
 from typing import Dict, Any
 from app.parsers.base_parser import BaseParser
 
@@ -13,9 +15,18 @@ class CSharpParser(BaseParser):
     
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse C# code and generate flowchart."""
-        return {
-            'main_flowchart': {'nodes': [], 'edges': []},
-            'functions': [],
-            'classes': [],
-            'code': code
-        }
+        try:
+            # Try to import from the old location
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'static', 'py'))
+            from cs_parser import parse_csharp
+            result = parse_csharp(code)
+            return result
+        except ImportError:
+            # Fallback - return empty
+            return {
+                'success': True,
+                'main_flowchart': {'nodes': [], 'edges': []},
+                'functions': [],
+                'classes': [],
+                'code': code
+            }
