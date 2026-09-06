@@ -1,5 +1,5 @@
 from typing import Optional
-from app.parsers import BaseParser, PythonParser, JavaScriptParser, CSharpParser
+from app.parsers import BaseParser, PythonParser, JavaScriptParser, CSharpParser, GoParser
 
 
 class ParserFactory:
@@ -9,6 +9,7 @@ class ParserFactory:
         '.py': PythonParser,
         '.js': JavaScriptParser,
         '.cs': CSharpParser,
+        '.go': GoParser,
     }
     
     @classmethod

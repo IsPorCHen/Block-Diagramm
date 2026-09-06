@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Development runner for Block Diagramm."""
 
-from app import create_app
+from app.main import create_app
 
 if __name__ == '__main__':
     app = create_app()

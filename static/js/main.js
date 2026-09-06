@@ -21,19 +21,19 @@ const sourceCode = document.getElementById('sourceCode');
 
 function initEventListeners() {
     selectFileBtn.addEventListener('click', () => fileInput.click());
-    
+
     uploadArea.addEventListener('click', (e) => {
         if (e.target !== clearFileBtn && !fileInfo.contains(e.target)) {
             fileInput.click();
         }
     });
-    
+
     fileInput.addEventListener('change', handleFileSelect);
     clearFileBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         clearFile();
     });
-    
+
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
@@ -66,19 +66,19 @@ function handleDrop(e) {
 }
 
 function setFile(file) {
-    const validExtensions = ['.py', '.js', '.cs'];
+    const validExtensions = ['.py', '.js', '.cs', '.go'];
     const ext = '.' + file.name.split('.').pop().toLowerCase();
-    
+
     if (!validExtensions.includes(ext)) {
-        showError('Разрешены файлы: .py, .js, .cs');
+        showError('Разрешены файлы: .py, .js, .cs, .go');
         return;
     }
-    
+
     if (file.size > 1024 * 1024) {
         showError('Файл слишком большой (макс. 1 МБ)');
         return;
     }
-    
+
     currentFile = file;
     fileName.textContent = file.name;
     fileInfo.style.display = 'flex';
@@ -105,18 +105,18 @@ async function generateFlowchart() {
     document.querySelector('.btn-text').style.display = 'none';
     document.querySelector('.loader').style.display = 'block';
     hideError();
-    
+
     const formData = new FormData();
     formData.append('file', currentFile);
-    
+
     try {
         const response = await fetch('/upload', {
             method: 'POST',
             body: formData
         });
-        
+
         const data = await response.json();
-        
+
         if (!response.ok) {
             throw new Error(data.error || 'Ошибка генерации');
         }
@@ -143,8 +143,8 @@ async function generateFlowchart() {
         if (data.functions?.length > 0) {
             data.functions.forEach(func => {
                 if (func.flowchart?.nodes?.length > 0) {
-                    const title = func.type === 'method' 
-                        ? `Метод: ${func.name}` 
+                    const title = func.type === 'method'
+                        ? `Метод: ${func.name}`
                         : `Функция: ${func.name}`;
                     createFlowchartPanel(`func-${func.name}`, title, func.flowchart);
                 }
@@ -154,10 +154,10 @@ async function generateFlowchart() {
         // Код
         sourceCode.textContent = data.code;
         codeSection.style.display = 'block';
-        
+
         flowchartSection.style.display = 'block';
         flowchartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        
+
     } catch (error) {
         console.error('Ошибка:', error);
         showError(error.message);
@@ -170,7 +170,7 @@ async function generateFlowchart() {
 
 function createFlowchartPanel(id, title, flowchartData) {
     const wrapper = document.getElementById('flowchartWrapper');
-    
+
     const panel = document.createElement('div');
     panel.className = 'flowchart-panel';
     panel.innerHTML = `
@@ -211,14 +211,14 @@ function createFlowchartPanel(id, title, flowchartData) {
         </div>
         <div class="panel-zoom-info" id="zoom-info-${id}">100%</div>
     `;
-    
+
     wrapper.appendChild(panel);
-    
+
     // Рендерим блок-схему
     const container = document.getElementById(`flowchart-${id}`);
     const renderer = new FlowchartRenderer(container);
     const size = renderer.render(flowchartData);
-    
+
     // Сохраняем состояние
     const state = {
         id,
@@ -233,7 +233,7 @@ function createFlowchartPanel(id, title, flowchartData) {
         size
     };
     flowchartInstances.set(id, state);
-    
+
     // Привязываем события
     setupPanelInteraction(panel, state);
 }
@@ -242,7 +242,7 @@ function setupPanelInteraction(panel, state) {
     const viewport = panel.querySelector('.panel-viewport');
     const content = panel.querySelector('.panel-content');
     const zoomInfo = panel.querySelector('.panel-zoom-info');
-    
+
     // Кнопки управления
     panel.querySelectorAll('.btn-icon').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -263,14 +263,14 @@ function setupPanelInteraction(panel, state) {
             }
         });
     });
-    
+
     // Масштабирование колёсиком
     viewport.addEventListener('wheel', (e) => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         zoom(state, delta, content, zoomInfo);
     }, { passive: false });
-    
+
     // Перетаскивание ЛКМ
     viewport.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
@@ -280,7 +280,7 @@ function setupPanelInteraction(panel, state) {
             viewport.style.cursor = 'grabbing';
         }
     });
-    
+
     document.addEventListener('mousemove', (e) => {
         if (state.isPanning) {
             state.panX = e.clientX - state.startX;
@@ -288,14 +288,14 @@ function setupPanelInteraction(panel, state) {
             updateTransform(state, content);
         }
     });
-    
+
     document.addEventListener('mouseup', () => {
         if (state.isPanning) {
             state.isPanning = false;
             viewport.style.cursor = 'grab';
         }
     });
-    
+
     viewport.style.cursor = 'grab';
 }
 
@@ -326,41 +326,41 @@ async function downloadFlowchart(state) {
             showError('Блок-схема не найдена');
             return;
         }
-        
+
         // Клонируем SVG
         const svgClone = svgElement.cloneNode(true);
         const viewBox = svgElement.getAttribute('viewBox');
         const [, , width, height] = viewBox ? viewBox.split(' ').map(Number) : [0, 0, 800, 600];
-        
+
         svgClone.setAttribute('width', width);
         svgClone.setAttribute('height', height);
-        
+
         // Добавляем белый фон
         const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         bg.setAttribute('width', '100%');
         bg.setAttribute('height', '100%');
         bg.setAttribute('fill', 'white');
         svgClone.insertBefore(bg, svgClone.firstChild);
-        
+
         const svgString = new XMLSerializer().serializeToString(svgClone);
         const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
-        
+
         const img = new Image();
         img.onload = () => {
             const canvas = document.createElement('canvas');
             const scale = 2;
             canvas.width = width * scale;
             canvas.height = height * scale;
-            
+
             const ctx = canvas.getContext('2d');
             ctx.scale(scale, scale);
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0);
-            
+
             URL.revokeObjectURL(url);
-            
+
             canvas.toBlob((blob) => {
                 const link = document.createElement('a');
                 link.download = `flowchart_${state.title.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_')}.png`;
@@ -369,9 +369,9 @@ async function downloadFlowchart(state) {
                 URL.revokeObjectURL(link.href);
             });
         };
-        
+
         img.src = url;
-        
+
     } catch (error) {
         showError('Ошибка скачивания: ' + error.message);
     }
