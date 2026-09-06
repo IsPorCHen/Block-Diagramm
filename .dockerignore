@@ -1,15 +1,51 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
-env/
 venv/
+env/
 .venv/
-.env
-.git
+ENV/
+dist/
+build/
+*.egg-info/
+
+# Version Control
+.git/
 .gitignore
-README.md
-tests/
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
 *.log
+*.pid
+*.seed
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Project specific
+old/
+tests/
+deploy.sh
+fix-docker.sh
+test_docker.sh
+*.md
+!README.md
+*.yml
+*.yaml
+Dockerfile*
+.dockerignore
+Makefile
+
+# Keep requirements.txt
+!requirements.txt
