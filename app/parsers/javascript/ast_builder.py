@@ -1,6 +1,7 @@
-"""Builds AST from JavaScript tokens - simplified version."""
+"""Builds AST from JavaScript tokens."""
 
 from typing import List, Dict, Any, Optional
+from app.parsers.javascript.tokenizer import Token
 
 
 class JavaScriptASTBuilder:
@@ -10,7 +11,7 @@ class JavaScriptASTBuilder:
         self.tokens = []
         self.pos = 0
     
-    def build(self, tokens: List) -> List[Dict[str, Any]]:
+    def build(self, tokens: List[Token]) -> List[Dict[str, Any]]:
         """Build AST from tokens."""
         self.tokens = tokens
         self.pos = 0

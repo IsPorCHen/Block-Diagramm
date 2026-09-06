@@ -1,6 +1,7 @@
-"""Builds AST from C# tokens - simplified version."""
+"""Builds AST from C# tokens."""
 
 from typing import List, Dict, Any, Optional
+from app.parsers.csharp.tokenizer import Token
 
 
 class CSharpASTBuilder:
@@ -10,7 +11,7 @@ class CSharpASTBuilder:
         self.tokens = []
         self.pos = 0
     
-    def build(self, tokens: List) -> List[Dict[str, Any]]:
+    def build(self, tokens: List[Token]) -> List[Dict[str, Any]]:
         """Build AST from tokens."""
         self.tokens = tokens
         self.pos = 0
