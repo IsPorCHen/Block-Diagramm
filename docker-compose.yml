@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: block-diagramm
+    ports:
+      - "5000:5000"
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=change-this-in-production
+    volumes:
+      - ./static:/app/static
+      - ./templates:/app/templates
+    restart: unless-stopped
