@@ -41,21 +41,6 @@ class FlowchartBuilder:
         self._flowchart.edges.append(edge)
         return edge
     
-    def add_nodes_from_graph(self, graph_data: List[Dict[str, Any]]):
-        """Add multiple nodes from graph data."""
-        for node_data in graph_data:
-            self.add_node(node_data['type'], node_data['text'])
-    
-    def add_edges_from_graph(self, graph_data: List[Dict[str, Any]]):
-        """Add multiple edges from graph data."""
-        for edge_data in graph_data:
-            self.add_edge(
-                edge_data['from'],
-                edge_data['to'],
-                edge_data.get('label', ''),
-                edge_data.get('branch', '')
-            )
-    
     def get_flowchart_data(self) -> Dict[str, Any]:
         """Get flowchart data as dictionary."""
         return self._flowchart.to_dict()

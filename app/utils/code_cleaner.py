@@ -1,7 +1,3 @@
-import re
-from typing import List
-
-
 class CodeCleaner:
     """Utility for cleaning source code."""
     
@@ -15,11 +11,9 @@ class CodeCleaner:
                 if '"""' in line or "'''" in line:
                     in_multiline = False
                 continue
-            # Check for multiline string start
             if '"""' in line or "'''" in line:
                 in_multiline = True
                 continue
-            # Remove single line comments
             if '#' in line:
                 line = line[:line.index('#')]
             lines.append(line)

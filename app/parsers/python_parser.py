@@ -1,8 +1,6 @@
 import ast
 from typing import Dict, Any
 from app.parsers.base_parser import BaseParser
-from app.builders.flowchart_builder import FlowchartBuilder
-from app.utils.code_cleaner import CodeCleaner
 
 
 class PythonParser(BaseParser):
@@ -16,8 +14,7 @@ class PythonParser(BaseParser):
     
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse Python code and generate flowchart."""
-        # TODO: Full implementation will be in sub-task 2
-        # For now, return empty structure
+        # TODO: Full implementation
         return {
             'main_flowchart': {'nodes': [], 'edges': []},
             'functions': [],

@@ -1,13 +1,12 @@
 from typing import Dict, Any, Optional
 from app.services.parser_factory import ParserFactory
-from app.builders.flowchart_builder import FlowchartBuilder
 
 
 class FlowchartService:
     """Service for generating flowcharts from source code."""
     
     def __init__(self):
-        self._builder = FlowchartBuilder()
+        self._builder = None
     
     def generate(self, code: str, extension: str) -> Dict[str, Any]:
         """
