@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Генератор блок-схем</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -52,7 +54,7 @@
                         🖱️ Колёсико мыши — масштаб | ЛКМ + перетаскивание — перемещение
                     </p>
                 </div>
-                
+
                 <div class="flowchart-wrapper" id="flowchartWrapper">
                     <!-- Панели блок-схем -->
                 </div>
@@ -74,4 +76,5 @@
     <script src="{{ url_for('static', filename='js/flowchart-renderer.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
+
 </html>
