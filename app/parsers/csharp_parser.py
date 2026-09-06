@@ -1,13 +1,19 @@
-"""C# language parser - uses the old parser for now."""
+"""C# language parser - uses the new clean parser."""
 
-import sys
-import os
+import logging
 from typing import Dict, Any
 from app.parsers.base import BaseParser
+from app.parsers.csharp import CSharpParser as NewCSharpParser
+
+logger = logging.getLogger(__name__)
 
 
 class CSharpParser(BaseParser):
     """C# language parser."""
+    
+    def __init__(self):
+        super().__init__()
+        self._parser = NewCSharpParser()
     
     def get_language(self) -> str:
         return 'csharp'
@@ -18,30 +24,20 @@ class CSharpParser(BaseParser):
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse C# code and generate flowchart."""
         try:
-            # Try to use the old parser from static/py
-            old_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'static', 'py')
-            if old_path not in sys.path:
-                sys.path.insert(0, old_path)
+            result = self._parser.parse(code)
             
-            from cs_parser import parse_csharp
-            result = parse_csharp(code)
-            
-            # Add success flag if not present
             if 'success' not in result:
                 result['success'] = True
             
             return result
             
-        except ImportError:
+        except Exception as e:
+            logger.error(f"C# parsing error: {e}", exc_info=True)
             return {
-                'success': True,
+                'success': False,
+                'error': f'C# parsing error: {str(e)}',
                 'main_flowchart': {'nodes': [], 'edges': []},
                 'functions': [],
                 'classes': [],
                 'code': code
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f'C# parsing error: {str(e)}'
             }
