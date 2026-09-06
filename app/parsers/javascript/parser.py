@@ -1,10 +1,13 @@
 """Main JavaScript parser."""
 
 from typing import Dict, Any, List, Optional, Tuple
+import logging
 from app.parsers.base import BaseParser
 from app.parsers.javascript.handlers import JavaScriptHandlers
 from app.parsers.javascript.tokenizer import JavaScriptTokenizer
 from app.parsers.javascript.ast_builder import JavaScriptASTBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class JavaScriptParser(BaseParser):
@@ -24,11 +27,15 @@ class JavaScriptParser(BaseParser):
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse JavaScript code and generate flowchart."""
         try:
+            logger.info(f"Parsing JavaScript code, length: {len(code)}")
+            
             # Tokenize
             tokens = self.tokenizer.tokenize(code)
+            logger.info(f"Tokenized into {len(tokens)} tokens")
             
             # Build AST
             ast_nodes = self.ast_builder.build(tokens)
+            logger.info(f"Built AST with {len(ast_nodes)} nodes")
             
             # Generate flowchart
             handlers = JavaScriptHandlers(self.graph)
@@ -37,14 +44,16 @@ class JavaScriptParser(BaseParser):
             classes = []
             
             for node in ast_nodes:
-                if node['type'] == 'function':
+                logger.debug(f"Processing node: {node.get('type', 'unknown')}")
+                
+                if node.get('type') == 'function':
                     flowchart = self._build_function(node, handlers)
                     functions.append({
                         'name': node.get('name', 'anonymous'),
                         'type': 'function',
                         'flowchart': flowchart
                     })
-                elif node['type'] == 'class':
+                elif node.get('type') == 'class':
                     flowchart, methods = self._build_class(node, handlers)
                     classes.append({
                         'name': node.get('name', ''),
@@ -53,7 +62,7 @@ class JavaScriptParser(BaseParser):
                     })
                     functions.extend(methods)
             
-            return {
+            result = {
                 'success': True,
                 'main_flowchart': {'nodes': [], 'edges': []},
                 'functions': functions,
@@ -61,10 +70,18 @@ class JavaScriptParser(BaseParser):
                 'code': code
             }
             
+            logger.info(f"Parse complete: {len(functions)} functions, {len(classes)} classes")
+            return result
+            
         except Exception as e:
+            logger.error(f"JavaScript parsing error: {str(e)}", exc_info=True)
             return {
                 'success': False,
-                'error': f'Parsing error: {str(e)}'
+                'error': f'JavaScript parsing error: {str(e)}',
+                'main_flowchart': {'nodes': [], 'edges': []},
+                'functions': [],
+                'classes': [],
+                'code': code
             }
     
     def _build_function(self, node: Dict[str, Any], handlers: JavaScriptHandlers) -> Dict[str, Any]:
@@ -83,7 +100,11 @@ class JavaScriptParser(BaseParser):
             self.graph.add_edge(start_id, param_id)
             prev_ids = [param_id]
         
-        last_ids = handlers.process_body(body, prev_ids)
+        if body:
+            last_ids = handlers.process_body(body, prev_ids)
+        else:
+            last_ids = prev_ids
+        
         end_id = self.graph.add_node('end', '')
         self._connect_to_end(last_ids, end_id)
         
@@ -98,16 +119,17 @@ class JavaScriptParser(BaseParser):
         
         class_id = self.graph.add_node('class_start', name)
         
-        for i, method_name in enumerate(methods):
-            method_id = self.graph.add_node('method', f'{method_name}()')
-            self.graph.add_edge(class_id, method_id, '', f'fan_{i}')
+        if methods:
+            for i, method_name in enumerate(methods):
+                method_id = self.graph.add_node('method', f'{method_name}()')
+                self.graph.add_edge(class_id, method_id, '', f'fan_{i}')
         
         flowchart = self.graph.to_dict()
         
         # Build method flowcharts
         method_flowcharts = []
         for method in methods:
-            # Find method body from methods list
+            # Find method body from method_nodes
             method_node = next((m for m in node.get('method_nodes', []) if m.get('name') == method), None)
             if method_node:
                 method_flow = self._build_function(method_node, handlers)

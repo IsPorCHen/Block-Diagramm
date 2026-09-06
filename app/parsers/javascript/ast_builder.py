@@ -23,77 +23,125 @@ class JavaScriptASTBuilder:
         
         return nodes
     
+    def _peek(self) -> Optional[Token]:
+        """Peek at current token."""
+        if self.pos < len(self.tokens):
+            return self.tokens[self.pos]
+        return None
+    
+    def _next(self) -> Optional[Token]:
+        """Get next token and advance."""
+        if self.pos < len(self.tokens):
+            token = self.tokens[self.pos]
+            self.pos += 1
+            return token
+        return None
+    
+    def _expect(self, value: str) -> bool:
+        """Check if current token matches value."""
+        token = self._peek()
+        return token is not None and token.value == value
+    
     def _parse_statement(self) -> Optional[Dict[str, Any]]:
         """Parse a single statement."""
-        if self.pos >= len(self.tokens):
+        token = self._peek()
+        if token is None:
             return None
         
-        token = self.tokens[self.pos]
+        # Skip semicolons
+        if token.value == ';':
+            self._next()
+            return None
         
+        # Function declaration
         if token.value == 'function':
             return self._parse_function()
-        elif token.value == 'class':
+        
+        # Class declaration
+        if token.value == 'class':
             return self._parse_class()
-        elif token.value == 'if':
+        
+        # If statement
+        if token.value == 'if':
             return self._parse_if()
-        elif token.value == 'for':
+        
+        # For loop
+        if token.value == 'for':
             return self._parse_for()
-        elif token.value == 'while':
+        
+        # While loop
+        if token.value == 'while':
             return self._parse_while()
-        elif token.value == 'do':
+        
+        # Do-while loop
+        if token.value == 'do':
             return self._parse_do_while()
-        elif token.value == 'switch':
+        
+        # Switch statement
+        if token.value == 'switch':
             return self._parse_switch()
-        elif token.value == 'try':
+        
+        # Try statement
+        if token.value == 'try':
             return self._parse_try()
-        elif token.value == 'return':
+        
+        # Return statement
+        if token.value == 'return':
             return self._parse_return()
-        elif token.value == 'throw':
+        
+        # Throw statement
+        if token.value == 'throw':
             return self._parse_throw()
-        elif token.value == 'break' or token.value == 'continue':
-            self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ';':
-                self.pos += 1
+        
+        # Break/Continue
+        if token.value in ('break', 'continue'):
+            self._next()
+            if self._expect(';'):
+                self._next()
             return {'type': token.value}
-        elif token.value == 'var' or token.value == 'let' or token.value == 'const':
+        
+        # Variable declaration
+        if token.value in ('var', 'let', 'const'):
             return self._parse_declaration()
-        elif token.value == ';':
-            self.pos += 1
-            return None
-        else:
-            return self._parse_expression_statement()
+        
+        # Expression statement
+        return self._parse_expression_statement()
     
     def _parse_function(self) -> Dict[str, Any]:
         """Parse function declaration."""
-        self.pos += 1  # Skip 'function'
+        self._next()  # Skip 'function'
         
         # Get name
         name = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].type == 'IDENTIFIER':
-            name = self.tokens[self.pos].value
-            self.pos += 1
+        token = self._peek()
+        if token and token.type == 'IDENTIFIER':
+            name = token.value
+            self._next()
         
         # Parse parameters
         params = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                if self.tokens[self.pos].type == 'IDENTIFIER':
-                    params.append(self.tokens[self.pos].value)
-                self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                self.pos += 1
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token and token.type == 'IDENTIFIER':
+                    params.append(token.value)
+                    self._next()
+                else:
+                    self._next()
+            if self._expect(')'):
+                self._next()
         
         # Parse body
         body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
                 stmt = self._parse_statement()
                 if stmt:
                     body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
+            if self._expect('}'):
+                self._next()
         
         return {
             'type': 'function',
@@ -104,25 +152,26 @@ class JavaScriptASTBuilder:
     
     def _parse_class(self) -> Dict[str, Any]:
         """Parse class declaration."""
-        self.pos += 1  # Skip 'class'
+        self._next()  # Skip 'class'
         
         name = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].type == 'IDENTIFIER':
-            name = self.tokens[self.pos].value
-            self.pos += 1
+        token = self._peek()
+        if token and token.type == 'IDENTIFIER':
+            name = token.value
+            self._next()
         
         methods = []
         method_nodes = []
         
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                # Parse method
-                if self.pos < len(self.tokens) and self.tokens[self.pos].type == 'IDENTIFIER':
-                    method_name = self.tokens[self.pos].value
-                    self.pos += 1
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token and token.type == 'IDENTIFIER':
+                    method_name = token.value
+                    self._next()
                     
-                    if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
+                    if self._expect('('):
                         # It's a method
                         method_node = self._parse_function()
                         if method_node:
@@ -130,15 +179,15 @@ class JavaScriptASTBuilder:
                             methods.append(method_name)
                             method_nodes.append(method_node)
                     else:
-                        # Property - skip for now
-                        while self.pos < len(self.tokens) and self.tokens[self.pos].value != ';':
-                            self.pos += 1
-                        if self.pos < len(self.tokens):
-                            self.pos += 1
+                        # Property - skip
+                        while not self._expect(';') and self.pos < len(self.tokens):
+                            self._next()
+                        if self._expect(';'):
+                            self._next()
                 else:
-                    self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
+                    self._next()
+            if self._expect('}'):
+                self._next()
         
         return {
             'type': 'class',
@@ -149,203 +198,159 @@ class JavaScriptASTBuilder:
     
     def _parse_if(self) -> Dict[str, Any]:
         """Parse if statement."""
-        self.pos += 1  # Skip 'if'
+        self._next()  # Skip 'if'
         
         condition = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                condition += self.tokens[self.pos].value
-                self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                self.pos += 1
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token:
+                    condition += token.value
+                    self._next()
+            if self._expect(')'):
+                self._next()
         
         # Parse body
-        body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
-        else:
-            # Single statement
-            stmt = self._parse_statement()
-            if stmt:
-                body.append(stmt)
+        body = self._parse_block_or_statement()
         
         # Parse else
         else_body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == 'else':
-            self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == 'if':
-                # else if
+        if self._expect('else'):
+            self._next()
+            if self._expect('if'):
                 else_node = self._parse_if()
                 else_body = [else_node]
             else:
-                if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-                    self.pos += 1
-                    while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                        stmt = self._parse_statement()
-                        if stmt:
-                            else_body.append(stmt)
-                    if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                        self.pos += 1
-                else:
-                    stmt = self._parse_statement()
-                    if stmt:
-                        else_body.append(stmt)
+                else_body = self._parse_block_or_statement()
         
         return {
             'type': 'if',
-            'condition': condition,
+            'condition': condition.strip(),
             'body': body,
             'else_body': else_body
         }
     
     def _parse_for(self) -> Dict[str, Any]:
-        """Parse for/for-of/for-in loop."""
-        self.pos += 1  # Skip 'for'
+        """Parse for loop."""
+        self._next()  # Skip 'for'
         
         header = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                header += self.tokens[self.pos].value
-                self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                self.pos += 1
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token:
+                    header += token.value
+                    self._next()
+            if self._expect(')'):
+                self._next()
         
-        body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
-        else:
-            stmt = self._parse_statement()
-            if stmt:
-                body.append(stmt)
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'for',
-            'header': header,
+            'header': header.strip(),
             'body': body
         }
     
     def _parse_while(self) -> Dict[str, Any]:
         """Parse while loop."""
-        self.pos += 1  # Skip 'while'
+        self._next()  # Skip 'while'
         
         condition = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                condition += self.tokens[self.pos].value
-                self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                self.pos += 1
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token:
+                    condition += token.value
+                    self._next()
+            if self._expect(')'):
+                self._next()
         
-        body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
-        else:
-            stmt = self._parse_statement()
-            if stmt:
-                body.append(stmt)
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'while',
-            'condition': condition,
+            'condition': condition.strip(),
             'body': body
         }
     
     def _parse_do_while(self) -> Dict[str, Any]:
         """Parse do-while loop."""
-        self.pos += 1  # Skip 'do'
+        self._next()  # Skip 'do'
         
-        body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
+        body = self._parse_block_or_statement()
         
         condition = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == 'while':
-            self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-                self.pos += 1
-                while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                    condition += self.tokens[self.pos].value
-                    self.pos += 1
-                if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                    self.pos += 1
+        if self._expect('while'):
+            self._next()
+            if self._expect('('):
+                self._next()
+                while not self._expect(')') and self.pos < len(self.tokens):
+                    token = self._peek()
+                    if token:
+                        condition += token.value
+                        self._next()
+                if self._expect(')'):
+                    self._next()
         
         return {
             'type': 'do_while',
-            'condition': condition,
+            'condition': condition.strip(),
             'body': body
         }
     
     def _parse_switch(self) -> Dict[str, Any]:
         """Parse switch statement."""
-        self.pos += 1  # Skip 'switch'
+        self._next()  # Skip 'switch'
         
         expression = ''
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                expression += self.tokens[self.pos].value
-                self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                self.pos += 1
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token:
+                    expression += token.value
+                    self._next()
+            if self._expect(')'):
+                self._next()
         
         cases = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                if self.tokens[self.pos].value == 'case':
-                    self.pos += 1
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token and token.value == 'case':
+                    self._next()
                     case_value = ''
-                    while self.pos < len(self.tokens) and self.tokens[self.pos].value != ':':
-                        case_value += self.tokens[self.pos].value
-                        self.pos += 1
-                    if self.pos < len(self.tokens) and self.tokens[self.pos].value == ':':
-                        self.pos += 1
+                    while not self._expect(':') and self.pos < len(self.tokens):
+                        token = self._peek()
+                        if token:
+                            case_value += token.value
+                            self._next()
+                    if self._expect(':'):
+                        self._next()
                     
                     case_body = []
-                    while self.pos < len(self.tokens) and self.tokens[self.pos].value not in ['case', 'default', '}']:
+                    while not self._expect('case') and not self._expect('default') and not self._expect('}') and self.pos < len(self.tokens):
                         stmt = self._parse_statement()
                         if stmt:
                             case_body.append(stmt)
                     
                     cases.append({
                         'type': 'case',
-                        'value': case_value,
+                        'value': case_value.strip(),
                         'body': case_body
                     })
-                elif self.tokens[self.pos].value == 'default':
-                    self.pos += 1
-                    if self.pos < len(self.tokens) and self.tokens[self.pos].value == ':':
-                        self.pos += 1
+                elif token and token.value == 'default':
+                    self._next()
+                    if self._expect(':'):
+                        self._next()
                     
                     default_body = []
-                    while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
+                    while not self._expect('}') and self.pos < len(self.tokens):
                         stmt = self._parse_statement()
                         if stmt:
                             default_body.append(stmt)
@@ -355,69 +360,47 @@ class JavaScriptASTBuilder:
                         'body': default_body
                     })
                 else:
-                    self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
+                    self._next()
+            if self._expect('}'):
+                self._next()
         
         return {
             'type': 'switch',
-            'expression': expression,
+            'expression': expression.strip(),
             'cases': cases
         }
     
     def _parse_try(self) -> Dict[str, Any]:
         """Parse try-catch-finally."""
-        self.pos += 1  # Skip 'try'
+        self._next()  # Skip 'try'
         
-        body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-            self.pos += 1
-            while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                self.pos += 1
+        body = self._parse_block_or_statement()
         
         catches = []
-        while self.pos < len(self.tokens) and self.tokens[self.pos].value == 'catch':
-            self.pos += 1
+        while self._expect('catch'):
+            self._next()
             catch_param = ''
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '(':
-                self.pos += 1
-                while self.pos < len(self.tokens) and self.tokens[self.pos].value != ')':
-                    catch_param += self.tokens[self.pos].value
-                    self.pos += 1
-                if self.pos < len(self.tokens) and self.tokens[self.pos].value == ')':
-                    self.pos += 1
+            if self._expect('('):
+                self._next()
+                while not self._expect(')') and self.pos < len(self.tokens):
+                    token = self._peek()
+                    if token:
+                        catch_param += token.value
+                        self._next()
+                if self._expect(')'):
+                    self._next()
             
-            catch_body = []
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-                self.pos += 1
-                while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                    stmt = self._parse_statement()
-                    if stmt:
-                        catch_body.append(stmt)
-                if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                    self.pos += 1
-            
+            catch_body = self._parse_block_or_statement()
             catches.append({
                 'type': 'catch',
-                'param': catch_param,
+                'param': catch_param.strip(),
                 'body': catch_body
             })
         
         finally_body = []
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == 'finally':
-            self.pos += 1
-            if self.pos < len(self.tokens) and self.tokens[self.pos].value == '{':
-                self.pos += 1
-                while self.pos < len(self.tokens) and self.tokens[self.pos].value != '}':
-                    stmt = self._parse_statement()
-                    if stmt:
-                        finally_body.append(stmt)
-                if self.pos < len(self.tokens) and self.tokens[self.pos].value == '}':
-                    self.pos += 1
+        if self._expect('finally'):
+            self._next()
+            finally_body = self._parse_block_or_statement()
         
         return {
             'type': 'try',
@@ -428,51 +411,57 @@ class JavaScriptASTBuilder:
     
     def _parse_return(self) -> Dict[str, Any]:
         """Parse return statement."""
-        self.pos += 1  # Skip 'return'
+        self._next()  # Skip 'return'
         
         value = ''
-        while self.pos < len(self.tokens) and self.tokens[self.pos].value != ';':
-            value += self.tokens[self.pos].value
-            self.pos += 1
+        while not self._expect(';') and self.pos < len(self.tokens):
+            token = self._peek()
+            if token:
+                value += token.value
+                self._next()
         
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == ';':
-            self.pos += 1
+        if self._expect(';'):
+            self._next()
         
         return {
             'type': 'return',
-            'value': value
+            'value': value.strip()
         }
     
     def _parse_throw(self) -> Dict[str, Any]:
         """Parse throw statement."""
-        self.pos += 1  # Skip 'throw'
+        self._next()  # Skip 'throw'
         
         value = ''
-        while self.pos < len(self.tokens) and self.tokens[self.pos].value != ';':
-            value += self.tokens[self.pos].value
-            self.pos += 1
+        while not self._expect(';') and self.pos < len(self.tokens):
+            token = self._peek()
+            if token:
+                value += token.value
+                self._next()
         
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == ';':
-            self.pos += 1
+        if self._expect(';'):
+            self._next()
         
         return {
             'type': 'throw',
-            'value': value
+            'value': value.strip()
         }
     
     def _parse_declaration(self) -> Dict[str, Any]:
         """Parse variable declaration."""
-        var_type = self.tokens[self.pos].value
-        self.pos += 1
+        var_type = self._next().value
         
         names = []
-        while self.pos < len(self.tokens) and self.tokens[self.pos].value != ';':
-            if self.tokens[self.pos].type == 'IDENTIFIER':
-                names.append(self.tokens[self.pos].value)
-            self.pos += 1
+        while not self._expect(';') and self.pos < len(self.tokens):
+            token = self._peek()
+            if token and token.type == 'IDENTIFIER':
+                names.append(token.value)
+                self._next()
+            else:
+                self._next()
         
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == ';':
-            self.pos += 1
+        if self._expect(';'):
+            self._next()
         
         return {
             'type': 'declaration',
@@ -482,15 +471,36 @@ class JavaScriptASTBuilder:
     
     def _parse_expression_statement(self) -> Dict[str, Any]:
         """Parse expression statement."""
-        expr = ''
-        while self.pos < len(self.tokens) and self.tokens[self.pos].value != ';':
-            expr += self.tokens[self.pos].value
-            self.pos += 1
+        value = ''
+        while not self._expect(';') and self.pos < len(self.tokens):
+            token = self._peek()
+            if token:
+                value += token.value
+                self._next()
         
-        if self.pos < len(self.tokens) and self.tokens[self.pos].value == ';':
-            self.pos += 1
+        if self._expect(';'):
+            self._next()
         
         return {
             'type': 'expression',
-            'value': expr
+            'value': value.strip()
         }
+    
+    def _parse_block_or_statement(self) -> List[Dict[str, Any]]:
+        """Parse a block or single statement."""
+        result = []
+        
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
+                stmt = self._parse_statement()
+                if stmt:
+                    result.append(stmt)
+            if self._expect('}'):
+                self._next()
+        else:
+            stmt = self._parse_statement()
+            if stmt:
+                result.append(stmt)
+        
+        return result

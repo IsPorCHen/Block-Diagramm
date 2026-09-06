@@ -1,3 +1,5 @@
+import os
+import logging
 from flask import Flask
 from app.config import config
 from app.routes import routes
@@ -5,7 +7,20 @@ from app.routes import routes
 
 def create_app() -> Flask:
     """Application factory."""
-    app = Flask(__name__)
+    # Setup logging
+    logging.basicConfig(
+        level=logging.DEBUG if config.DEBUG else logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Get the absolute path to the project root
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(project_root, 'templates'),
+        static_folder=os.path.join(project_root, 'static')
+    )
     
     # Configuration
     app.config['SECRET_KEY'] = config.SECRET_KEY
