@@ -1,4 +1,4 @@
-"""Builds AST from C# tokens."""
+"""Builds AST from C# tokens - simplified version."""
 
 from typing import List, Dict, Any, Optional
 
@@ -53,55 +53,47 @@ class CSharpASTBuilder:
             self._next()
             return None
         
-        # Class declaration
-        if token.value == 'class':
+        # Class/Struct/Interface
+        if token.value in ('class', 'struct', 'interface'):
             return self._parse_class()
         
-        # Struct declaration
-        if token.value == 'struct':
-            return self._parse_class()  # Same as class for now
-        
-        # Interface declaration
-        if token.value == 'interface':
-            return self._parse_class()
-        
-        # Enum declaration
+        # Enum
         if token.value == 'enum':
             return self._parse_enum()
         
-        # If statement
+        # If
         if token.value == 'if':
             return self._parse_if()
         
-        # For loop
+        # For
         if token.value == 'for':
             return self._parse_for()
         
-        # Foreach loop
+        # Foreach
         if token.value == 'foreach':
             return self._parse_foreach()
         
-        # While loop
+        # While
         if token.value == 'while':
             return self._parse_while()
         
-        # Do loop
+        # Do
         if token.value == 'do':
             return self._parse_do()
         
-        # Switch statement
+        # Switch
         if token.value == 'switch':
             return self._parse_switch()
         
-        # Try statement
+        # Try
         if token.value == 'try':
             return self._parse_try()
         
-        # Return statement
+        # Return
         if token.value == 'return':
             return self._parse_return()
         
-        # Throw statement
+        # Throw
         if token.value == 'throw':
             return self._parse_throw()
         
@@ -112,21 +104,28 @@ class CSharpASTBuilder:
                 self._next()
             return {'type': token.value}
         
-        # Using statement
+        # Using
         if token.value == 'using':
             return self._parse_using()
         
-        # Variable declaration
-        if token.value in ('var', 'int', 'string', 'bool', 'double', 'float', 'decimal',
-                           'long', 'short', 'byte', 'char', 'object', 'dynamic'):
-            return self._parse_declaration()
+        # Public/private/etc - skip modifiers and parse next
+        if token.value in ('public', 'private', 'protected', 'internal', 'static', 
+                          'readonly', 'const', 'virtual', 'override', 'abstract',
+                          'sealed', 'async', 'unsafe'):
+            self._next()
+            return self._parse_statement()
         
-        # Skip keywords and parse expression
-        return self._parse_expression_statement()
+        # Variable declaration - check if next token is identifier
+        if token.type == 'IDENTIFIER':
+            return self._parse_declaration_or_expression()
+        
+        # Skip unknown
+        self._next()
+        return None
     
     def _parse_class(self) -> Dict[str, Any]:
         """Parse class/struct/interface declaration."""
-        class_type = self._next().value  # class, struct, interface
+        class_type = self._next().value
         
         # Get name
         name = ''
@@ -148,12 +147,8 @@ class CSharpASTBuilder:
         if self._expect('{'):
             self._next()
             while not self._expect('}') and self.pos < len(self.tokens):
-                token = self._peek()
-                if token is None:
-                    break
-                
                 # Skip attributes
-                if token.value == '[':
+                if self._expect('['):
                     while not self._expect(']') and self.pos < len(self.tokens):
                         self._next()
                     if self._expect(']'):
@@ -162,35 +157,36 @@ class CSharpASTBuilder:
                 
                 # Skip modifiers
                 modifiers = []
-                while token and token.value in ('public', 'private', 'protected', 'internal',
-                                               'static', 'readonly', 'const', 'volatile',
-                                               'abstract', 'sealed', 'virtual', 'override',
-                                               'async', 'unsafe'):
-                    modifiers.append(token.value)
+                while self._peek() and self._peek().value in ('public', 'private', 'protected', 
+                                                              'internal', 'static', 'readonly',
+                                                              'const', 'virtual', 'override',
+                                                              'abstract', 'sealed', 'async'):
+                    modifiers.append(self._peek().value)
                     self._next()
-                    token = self._peek()
                 
+                token = self._peek()
                 if token is None:
                     break
                 
-                # Check for method or property
+                # Check if it's a method (has parentheses after name)
                 if token.type == 'IDENTIFIER':
                     name_token = token.value
                     self._next()
                     
                     # Method
                     if self._expect('('):
-                        method_node = self._parse_function(name_token, modifiers)
+                        method_node = self._parse_method_body(name_token)
                         if method_node:
                             methods.append(name_token)
                             method_nodes.append(method_node)
                     # Property
                     elif self._expect('{'):
-                        # Parse property
-                        prop_body, _ = self._parse_block()
-                        # Check for get/set
-                        if 'get' in prop_body or 'set' in prop_body:
-                            properties.append(name_token)
+                        properties.append(name_token)
+                        # Skip property body
+                        while not self._expect('}') and self.pos < len(self.tokens):
+                            self._next()
+                        if self._expect('}'):
+                            self._next()
                     # Field
                     else:
                         fields.append(name_token)
@@ -199,7 +195,6 @@ class CSharpASTBuilder:
                         if self._expect(';'):
                             self._next()
                 else:
-                    # Skip unknown
                     self._next()
             
             if self._expect('}'):
@@ -214,9 +209,47 @@ class CSharpASTBuilder:
             'method_nodes': method_nodes
         }
     
+    def _parse_method_body(self, name: str) -> Dict[str, Any]:
+        """Parse method body."""
+        # Skip parameters
+        params = []
+        if self._expect('('):
+            self._next()
+            while not self._expect(')') and self.pos < len(self.tokens):
+                token = self._peek()
+                if token and token.type in ('IDENTIFIER', 'KEYWORD'):
+                    # Skip type
+                    self._next()
+                    token = self._peek()
+                    if token and token.type == 'IDENTIFIER':
+                        params.append(token.value)
+                        self._next()
+                else:
+                    self._next()
+            if self._expect(')'):
+                self._next()
+        
+        # Parse body
+        body = []
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
+                stmt = self._parse_statement()
+                if stmt:
+                    body.append(stmt)
+            if self._expect('}'):
+                self._next()
+        
+        return {
+            'type': 'function',
+            'name': name,
+            'params': params,
+            'body': body
+        }
+    
     def _parse_enum(self) -> Dict[str, Any]:
         """Parse enum declaration."""
-        self._next()  # Skip 'enum'
+        self._next()
         
         name = ''
         token = self._peek()
@@ -243,60 +276,9 @@ class CSharpASTBuilder:
             'values': values
         }
     
-    def _parse_function(self, name: str = '', modifiers: List[str] = None) -> Dict[str, Any]:
-        """Parse function/method declaration."""
-        if name == '':
-            token = self._peek()
-            if token and token.type == 'IDENTIFIER':
-                name = token.value
-                self._next()
-        
-        # Parse parameters
-        params = []
-        if self._expect('('):
-            self._next()
-            while not self._expect(')') and self.pos < len(self.tokens):
-                token = self._peek()
-                if token and token.type in ('IDENTIFIER', 'KEYWORD'):
-                    # Skip type
-                    self._next()
-                    token = self._peek()
-                    if token and token.type == 'IDENTIFIER':
-                        params.append(token.value)
-                        self._next()
-                else:
-                    self._next()
-            if self._expect(')'):
-                self._next()
-        
-        # Parse body
-        body = []
-        if self._expect('{'):
-            body, _ = self._parse_block()
-        
-        return {
-            'type': 'function',
-            'name': name,
-            'params': params,
-            'body': body
-        }
-    
-    def _parse_block(self) -> tuple:
-        """Parse a block of statements."""
-        body = []
-        if self._expect('{'):
-            self._next()
-            while not self._expect('}') and self.pos < len(self.tokens):
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self._expect('}'):
-                self._next()
-        return body, len(body)
-    
     def _parse_if(self) -> Dict[str, Any]:
         """Parse if statement."""
-        self._next()  # Skip 'if'
+        self._next()
         
         condition = ''
         if self._expect('('):
@@ -309,10 +291,8 @@ class CSharpASTBuilder:
             if self._expect(')'):
                 self._next()
         
-        # Parse body
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
-        # Parse else
         else_body = []
         if self._expect('else'):
             self._next()
@@ -320,7 +300,7 @@ class CSharpASTBuilder:
                 else_node = self._parse_if()
                 else_body = [else_node]
             else:
-                else_body, _ = self._parse_block()
+                else_body = self._parse_block_or_statement()
         
         return {
             'type': 'if',
@@ -331,7 +311,7 @@ class CSharpASTBuilder:
     
     def _parse_for(self) -> Dict[str, Any]:
         """Parse for loop."""
-        self._next()  # Skip 'for'
+        self._next()
         
         header = ''
         if self._expect('('):
@@ -344,7 +324,7 @@ class CSharpASTBuilder:
             if self._expect(')'):
                 self._next()
         
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'for',
@@ -354,7 +334,7 @@ class CSharpASTBuilder:
     
     def _parse_foreach(self) -> Dict[str, Any]:
         """Parse foreach loop."""
-        self._next()  # Skip 'foreach'
+        self._next()
         
         header = ''
         if self._expect('('):
@@ -367,7 +347,7 @@ class CSharpASTBuilder:
             if self._expect(')'):
                 self._next()
         
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'foreach',
@@ -377,7 +357,7 @@ class CSharpASTBuilder:
     
     def _parse_while(self) -> Dict[str, Any]:
         """Parse while loop."""
-        self._next()  # Skip 'while'
+        self._next()
         
         condition = ''
         if self._expect('('):
@@ -390,7 +370,7 @@ class CSharpASTBuilder:
             if self._expect(')'):
                 self._next()
         
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'while',
@@ -400,9 +380,9 @@ class CSharpASTBuilder:
     
     def _parse_do(self) -> Dict[str, Any]:
         """Parse do-while loop."""
-        self._next()  # Skip 'do'
+        self._next()
         
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
         condition = ''
         if self._expect('while'):
@@ -425,7 +405,7 @@ class CSharpASTBuilder:
     
     def _parse_switch(self) -> Dict[str, Any]:
         """Parse switch statement."""
-        self._next()  # Skip 'switch'
+        self._next()
         
         expression = ''
         if self._expect('('):
@@ -454,8 +434,7 @@ class CSharpASTBuilder:
                     if self._expect(':'):
                         self._next()
                     
-                    case_body, _ = self._parse_block()
-                    
+                    case_body = self._parse_block_or_statement()
                     cases.append({
                         'type': 'case',
                         'value': case_value.strip(),
@@ -466,8 +445,7 @@ class CSharpASTBuilder:
                     if self._expect(':'):
                         self._next()
                     
-                    default_body, _ = self._parse_block()
-                    
+                    default_body = self._parse_block_or_statement()
                     cases.append({
                         'type': 'default',
                         'body': default_body
@@ -485,9 +463,9 @@ class CSharpASTBuilder:
     
     def _parse_try(self) -> Dict[str, Any]:
         """Parse try-catch-finally."""
-        self._next()  # Skip 'try'
+        self._next()
         
-        body, _ = self._parse_block()
+        body = self._parse_block_or_statement()
         
         catches = []
         while self._expect('catch'):
@@ -503,7 +481,7 @@ class CSharpASTBuilder:
                 if self._expect(')'):
                     self._next()
             
-            catch_body, _ = self._parse_block()
+            catch_body = self._parse_block_or_statement()
             catches.append({
                 'type': 'catch',
                 'param': catch_param.strip(),
@@ -513,7 +491,7 @@ class CSharpASTBuilder:
         finally_body = []
         if self._expect('finally'):
             self._next()
-            finally_body, _ = self._parse_block()
+            finally_body = self._parse_block_or_statement()
         
         return {
             'type': 'try',
@@ -524,7 +502,7 @@ class CSharpASTBuilder:
     
     def _parse_return(self) -> Dict[str, Any]:
         """Parse return statement."""
-        self._next()  # Skip 'return'
+        self._next()
         
         value = ''
         while not self._expect(';') and self.pos < len(self.tokens):
@@ -543,7 +521,7 @@ class CSharpASTBuilder:
     
     def _parse_throw(self) -> Dict[str, Any]:
         """Parse throw statement."""
-        self._next()  # Skip 'throw'
+        self._next()
         
         value = ''
         while not self._expect(';') and self.pos < len(self.tokens):
@@ -561,8 +539,8 @@ class CSharpASTBuilder:
         }
     
     def _parse_using(self) -> Dict[str, Any]:
-        """Parse using statement."""
-        self._next()  # Skip 'using'
+        """Parse using statement or directive."""
+        self._next()
         
         value = ''
         while not self._expect(';') and not self._expect('{') and self.pos < len(self.tokens):
@@ -578,7 +556,7 @@ class CSharpASTBuilder:
                 'value': value.strip()
             }
         elif self._expect('{'):
-            body, _ = self._parse_block()
+            body = self._parse_block_or_statement()
             return {
                 'type': 'using_statement',
                 'value': value.strip(),
@@ -590,30 +568,55 @@ class CSharpASTBuilder:
             'value': value.strip()
         }
     
-    def _parse_declaration(self) -> Dict[str, Any]:
-        """Parse variable declaration."""
-        var_type = self._next().value
-        
-        names = []
-        while not self._expect(';') and self.pos < len(self.tokens):
+    def _parse_declaration_or_expression(self) -> Dict[str, Any]:
+        """Parse declaration or expression."""
+        # Try to detect if it's a declaration
+        token = self._peek()
+        if token and token.type == 'IDENTIFIER':
+            # Check if next token is identifier (var name) or operator
+            var_type = token.value
+            self._next()
+            
             token = self._peek()
             if token and token.type == 'IDENTIFIER':
-                names.append(token.value)
+                # It's a declaration
+                names = [token.value]
                 self._next()
+                
+                while not self._expect(';') and self.pos < len(self.tokens):
+                    token = self._peek()
+                    if token and token.type == 'IDENTIFIER':
+                        names.append(token.value)
+                        self._next()
+                    else:
+                        self._next()
+                
+                if self._expect(';'):
+                    self._next()
+                
+                return {
+                    'type': 'declaration',
+                    'var_type': var_type,
+                    'names': names
+                }
             else:
-                self._next()
+                # It's an expression
+                value = var_type
+                while not self._expect(';') and self.pos < len(self.tokens):
+                    token = self._peek()
+                    if token:
+                        value += token.value
+                        self._next()
+                
+                if self._expect(';'):
+                    self._next()
+                
+                return {
+                    'type': 'expression',
+                    'value': value.strip()
+                }
         
-        if self._expect(';'):
-            self._next()
-        
-        return {
-            'type': 'declaration',
-            'var_type': var_type,
-            'names': names
-        }
-    
-    def _parse_expression_statement(self) -> Dict[str, Any]:
-        """Parse expression statement."""
+        # Expression
         value = ''
         while not self._expect(';') and self.pos < len(self.tokens):
             token = self._peek()
@@ -628,3 +631,22 @@ class CSharpASTBuilder:
             'type': 'expression',
             'value': value.strip()
         }
+    
+    def _parse_block_or_statement(self) -> List[Dict[str, Any]]:
+        """Parse a block or single statement."""
+        result = []
+        
+        if self._expect('{'):
+            self._next()
+            while not self._expect('}') and self.pos < len(self.tokens):
+                stmt = self._parse_statement()
+                if stmt:
+                    result.append(stmt)
+            if self._expect('}'):
+                self._next()
+        else:
+            stmt = self._parse_statement()
+            if stmt:
+                result.append(stmt)
+        
+        return result

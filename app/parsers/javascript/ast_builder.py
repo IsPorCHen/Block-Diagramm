@@ -1,4 +1,4 @@
-"""Builds AST from JavaScript tokens."""
+"""Builds AST from JavaScript tokens - simplified version."""
 
 from typing import List, Dict, Any, Optional
 
@@ -133,15 +133,7 @@ class JavaScriptASTBuilder:
                 self._next()
         
         # Parse body
-        body = []
-        if self._expect('{'):
-            self._next()
-            while not self._expect('}') and self.pos < len(self.tokens):
-                stmt = self._parse_statement()
-                if stmt:
-                    body.append(stmt)
-            if self._expect('}'):
-                self._next()
+        body = self._parse_block_or_statement()
         
         return {
             'type': 'function',
@@ -171,16 +163,34 @@ class JavaScriptASTBuilder:
                     method_name = token.value
                     self._next()
                     
+                    # Check if it's a method (has parentheses)
                     if self._expect('('):
                         # It's a method
-                        method_node = self._parse_function()
-                        if method_node:
-                            method_node['name'] = method_name
-                            methods.append(method_name)
-                            method_nodes.append(method_node)
+                        self._next()  # Skip '('
+                        params = []
+                        while not self._expect(')') and self.pos < len(self.tokens):
+                            token = self._peek()
+                            if token and token.type == 'IDENTIFIER':
+                                params.append(token.value)
+                                self._next()
+                            else:
+                                self._next()
+                        if self._expect(')'):
+                            self._next()
+                        
+                        body = self._parse_block_or_statement()
+                        
+                        method_node = {
+                            'type': 'function',
+                            'name': method_name,
+                            'params': params,
+                            'body': body
+                        }
+                        methods.append(method_name)
+                        method_nodes.append(method_node)
                     else:
                         # Property - skip
-                        while not self._expect(';') and self.pos < len(self.tokens):
+                        while not self._expect(';') and not self._expect('}') and self.pos < len(self.tokens):
                             self._next()
                         if self._expect(';'):
                             self._next()
@@ -211,10 +221,8 @@ class JavaScriptASTBuilder:
             if self._expect(')'):
                 self._next()
         
-        # Parse body
         body = self._parse_block_or_statement()
         
-        # Parse else
         else_body = []
         if self._expect('else'):
             self._next()
@@ -333,12 +341,7 @@ class JavaScriptASTBuilder:
                     if self._expect(':'):
                         self._next()
                     
-                    case_body = []
-                    while not self._expect('case') and not self._expect('default') and not self._expect('}') and self.pos < len(self.tokens):
-                        stmt = self._parse_statement()
-                        if stmt:
-                            case_body.append(stmt)
-                    
+                    case_body = self._parse_block_or_statement()
                     cases.append({
                         'type': 'case',
                         'value': case_value.strip(),
@@ -349,12 +352,7 @@ class JavaScriptASTBuilder:
                     if self._expect(':'):
                         self._next()
                     
-                    default_body = []
-                    while not self._expect('}') and self.pos < len(self.tokens):
-                        stmt = self._parse_statement()
-                        if stmt:
-                            default_body.append(stmt)
-                    
+                    default_body = self._parse_block_or_statement()
                     cases.append({
                         'type': 'default',
                         'body': default_body
