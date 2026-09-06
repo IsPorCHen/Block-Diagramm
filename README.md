@@ -5,14 +5,6 @@
 Веб-приложение для автоматической генерации блок-схем из исходного кода на Python, JavaScript и C#.
 Визуализация алгоритмов по ГОСТ без ручного рисования.
 
-## Окружение
-
-- Arch Linux, Hyprland
-- Backend: Python 3.10+, Flask 3.1.2
-- Frontend: HTML5, CSS3, Vanilla JS
-- Контейнеризация: Docker + docker-compose
-- Виртуальное окружение: `venv` (из-за externally-managed-environment в Arch)
-
 ## Архитектура
 
 ```
@@ -29,8 +21,6 @@
 (`BaseParser`) и используют общий `GraphBuilder` для построения блок-схем.
 
 ## Файлы
-
-### `~/dotfiles/projects/Block-Diagramm/` (корень проекта)
 
 | Файл/Папка | Назначение |
 |---|---|
@@ -85,46 +75,6 @@
   - `functions`: `[{name, type, flowchart}]`
   - `classes`: `[{name, type, flowchart}]`
   - `code`: исходный код (для отображения)
-
-## Известные решённые проблемы (для истории/справки)
-
-1. **`externally-managed-environment` в Arch** — нельзя установить пакеты глобально.
-   Фикс: всегда использовать `venv` (`python -m venv venv && source venv/bin/activate`).
-
-2. **Docker permissions** — `permission denied while trying to connect to the docker API`.
-   Фикс: `sudo usermod -aG docker $USER && newgrp docker` или использовать `sudo` в командах.
-   В `Makefile` команды docker обёрнуты в `sudo`.
-
-3. **`TemplateNotFound: index.html`** — Flask не видел папки `templates`/`static` после реструктуризации.
-   Фикс: в `app/main.py` явно указаны абсолютные пути:
-
-   ```python
-   project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-   app = Flask(__name__,
-               template_folder=os.path.join(project_root, 'templates'),
-               static_folder=os.path.join(project_root, 'static'))
-   ```
-
-4. **`NameError: name 'Token' is not defined`** в AST-билдерах JS/C# — тип `Token` не был импортирован.
-   Фикс: добавлен импорт `from app.parsers.javascript.tokenizer import Token` и аналогично для C#.
-
-5. **JavaScript парсер не генерировал блок-схемы** — старый парсер был сломан.
-   Фикс: написан новый парсер с нуля: токенизатор → AST-билдер → handlers → GraphBuilder.
-   Временное решение: использован старый парсер из `static/py/js_parser.py` как fallback.
-
-6. **C# парсер не генерировал блок-схемы** — AST-билдер неправильно обрабатывал методы.
-   Фикс: переписан `ast_builder.py` с упрощённой логикой: методы распознаются по `(` после имени, свойства — по `{`, поля — по `;`.
-
-7. **Python парсер был 500+ строк в одном файле** — нарушение SRP.
-   Фикс: разбит на 4 модуля: `parser.py` (точка входа), `handlers.py` (обработка конструкций), `formatter.py` (форматирование выражений), `tokenizer.py` (обёртка над `ast`).
-
-8. **`.dockerignore` исключал `requirements.txt`** — ошибка сборки `"/requirements.txt": not found`.
-   Фикс: в `.dockerignore` добавлено `!requirements.txt` и убрано `*.txt`.
-
-9. **Docker контейнер перезапускался из-за ошибок импорта** — не было правильных импортов в AST-билдерах.
-   Фикс: добавлены все недостающие импорты, контейнер теперь запускается стабильно.
-
-10. Grid в Vicinae (не относится к этому проекту) — в примере упомянут только для аналогии.
 
 ## Диагностика: как смотреть логи, если что-то сломалось
 
@@ -186,16 +136,3 @@ python tests/test_cs_parser.py
 ✓ C#: Complex
 Passed: 6/6
 ```
-
-## На горизонте
-
-- [x] Базовая генерация блок-схем для Python
-- [x] Генерация для JavaScript (переписан с нуля)
-- [x] Генерация для C# (переписан с нуля)
-- [x] SOLID-рефакторинг парсеров (разбивка на модули)
-- [x] Docker-контейнеризация
-- [x] Единообразная структура парсеров (tokenizer → ast_builder → handlers → parser)
-- [x] Makefile для удобных команд
-- [x] CI/CD через GitHub Actions (сборка Docker, push в registry)
-- [x] Развернуть на Render.com или аналогичном хостинге
-- [ ] Экспорт в PNG через кнопку в UI (уже есть, надо проверить)
