@@ -22,4 +22,4 @@ USER appuser
 EXPOSE 5000
 
 # Run the application
-CMD ["python", "-m", "app.main"]
+CMD ["python", "run.py"]
