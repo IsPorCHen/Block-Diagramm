@@ -2,12 +2,20 @@
 
 import ast
 from typing import Dict, Any, List
+import logging
 from app.parsers.base import BaseParser
 from app.parsers.python.handlers import PythonHandlers
+from app.parsers.python.tokenizer import PythonTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 class PythonParser(BaseParser):
     """Python language parser."""
+    
+    def __init__(self):
+        super().__init__()
+        self.tokenizer = PythonTokenizer()
     
     def get_language(self) -> str:
         return 'python'
@@ -18,45 +26,61 @@ class PythonParser(BaseParser):
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse Python code and generate flowchart."""
         try:
-            tree = ast.parse(code)
+            logger.info(f"Parsing Python code, length: {len(code)}")
+            
+            tree = self.tokenizer.tokenize(code)
+            
+            handlers = PythonHandlers(self.graph)
+            
+            functions = []
+            classes = []
+            
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    flowchart = self._build_function(node, handlers)
+                    functions.append({
+                        'name': node.name,
+                        'type': 'function',
+                        'flowchart': flowchart
+                    })
+                elif isinstance(node, ast.ClassDef):
+                    flowchart, methods = self._build_class(node, handlers)
+                    classes.append({
+                        'name': node.name,
+                        'type': 'class',
+                        'flowchart': flowchart
+                    })
+                    functions.extend(methods)
+            
+            # Main body
+            main_body = [stmt for stmt in tree.body 
+                         if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
+            
+            main_flowchart = self._build_main(main_body, handlers)
+            
+            result = {
+                'success': True,
+                'main_flowchart': main_flowchart,
+                'functions': functions,
+                'classes': classes,
+                'code': code
+            }
+            
+            logger.info(f"Parse complete: {len(functions)} functions, {len(classes)} classes")
+            return result
+            
         except SyntaxError as e:
-            return {'success': False, 'error': f'Синтаксическая ошибка: строка {e.lineno}'}
-        
-        handlers = PythonHandlers(self.graph)
-        
-        functions = []
-        classes = []
-        
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef):
-                flowchart = self._build_function(node, handlers)
-                functions.append({
-                    'name': node.name,
-                    'type': 'function',
-                    'flowchart': flowchart
-                })
-            elif isinstance(node, ast.ClassDef):
-                flowchart, methods = self._build_class(node, handlers)
-                classes.append({
-                    'name': node.name,
-                    'type': 'class',
-                    'flowchart': flowchart
-                })
-                functions.extend(methods)
-        
-        # Main body
-        main_body = [stmt for stmt in tree.body 
-                     if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
-        
-        main_flowchart = self._build_main(main_body, handlers)
-        
-        return {
-            'success': True,
-            'main_flowchart': main_flowchart,
-            'functions': functions,
-            'classes': classes,
-            'code': code
-        }
+            logger.error(f"Python syntax error: {e}")
+            return {
+                'success': False,
+                'error': f'Синтаксическая ошибка: {str(e)}'
+            }
+        except Exception as e:
+            logger.error(f"Python parsing error: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'Python parsing error: {str(e)}'
+            }
     
     def _build_function(self, node: ast.FunctionDef, handlers: PythonHandlers) -> Dict[str, Any]:
         """Build flowchart for a function."""
